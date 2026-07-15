@@ -266,6 +266,18 @@ describe("tarminal", function()
     end, 50)
     assert.is_true(seen)
 
+    -- let the output settle (trailing prompt included): a late arrival
+    -- would make the terminal follow its output and move the cursor
+    local tick = vim.api.nvim_buf_get_changedtick(term_buf)
+    vim.wait(2000, function()
+      local t = vim.api.nvim_buf_get_changedtick(term_buf)
+      if t ~= tick then
+        tick = t
+        return false
+      end
+      return true
+    end, 100)
+
     vim.api.nvim_win_set_cursor(term_win, { vim.api.nvim_buf_line_count(term_buf), 0 })
     tarminal.prev_error()
     local line = vim.api.nvim_get_current_line()
@@ -275,8 +287,11 @@ describe("tarminal", function()
     assert.equals(file, vim.api.nvim_buf_get_name(0))
     assert.same({ 2, 1 }, vim.api.nvim_win_get_cursor(0))
 
-    -- back in the terminal, navigation still works after the jump
+    -- back in the terminal, navigation still works after the jump; start
+    -- from the bottom again rather than assuming the cursor was preserved
     vim.api.nvim_set_current_win(term_win)
+    vim.api.nvim_win_set_cursor(term_win, { vim.api.nvim_buf_line_count(term_buf), 0 })
+    tarminal.prev_error()
     tarminal.prev_error()
     assert.is_truthy(vim.api.nvim_get_current_line():find(":1:1: aaa", 1, true))
     tarminal.next_error()
