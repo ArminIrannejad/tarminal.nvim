@@ -245,6 +245,45 @@ describe("tarminal", function()
     assert.equals(0, #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}))
   end)
 
+  it("keeps previous runs scrollable in the terminal", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    local term_buf
+    local function has_banner(token)
+      for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:match("^=====") and l:find(token, 1, true) then
+          return true
+        end
+      end
+      return false
+    end
+
+    tarminal.run()
+    local first = ("RUN[%d]"):format(tarminal._run_id)
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+    assert.is_true(vim.wait(4000, function()
+      return has_banner(first)
+    end, 50))
+
+    tarminal.run()
+    local second = ("RUN[%d]"):format(tarminal._run_id)
+    assert.is_true(vim.wait(4000, function()
+      return has_banner(second)
+    end, 50))
+    -- the first run's banner must survive the second run's screen push
+    assert.is_true(has_banner(first))
+    vim.fn.delete(file)
+  end)
+
   it("navigates and jumps between error locations, repeatedly", function()
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
