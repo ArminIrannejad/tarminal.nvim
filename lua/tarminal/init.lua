@@ -19,7 +19,13 @@ local uv = vim.uv or vim.loop
 ---@field cell_marker string line that delimits REPL cells
 ---@field runners table<string, string> filetype -> command that runs a file
 ---@field repls table<string, string> filetype -> interactive REPL command
+---@field quickfix tarminal.Quickfix
 ---@field keymaps tarminal.Keymaps
+
+--- What errors_to_quickfix does besides populating the quickfix list.
+---@class tarminal.Quickfix
+---@field open boolean open the quickfix window after collecting
+---@field close_terminal boolean close the terminal window after collecting
 
 --- No keymaps are created unless set here (see the README's example setup).
 --- Every action is also reachable via :Tarminal <action>.
@@ -55,6 +61,10 @@ M.config = {
     lua = "lua -i",
     haskell = "ghci",
     ocaml = "ocaml",
+  },
+  quickfix = {
+    open = true,
+    close_terminal = true,
   },
   keymaps = {},
 }
@@ -117,11 +127,34 @@ local function find_live_terminal(var_name, expected)
   end
 end
 
-local function open_shell_term()
+--- Open a terminal running the configured shell in a bottom split. Window
+--- options, filetype, buffer name and error-navigation keymaps are applied
+--- here so they only ever affect tarminal's own terminals.
+---@param name string buffer name, e.g. "tarminal://shell"
+---@return integer buf, integer win
+local function open_shell_term(name)
   local win = bottom_split()
   vim.cmd("term " .. M.config.shell)
   local buf = vim.api.nvim_get_current_buf()
   vim.b[buf].term_cwd = vim.fn.getcwd()
+
+  vim.opt_local.number = false
+  vim.opt_local.relativenumber = false
+  vim.opt_local.scrolloff = 0
+  vim.bo[buf].filetype = "tarminal"
+  pcall(vim.api.nvim_buf_set_name, buf, name)
+
+  local keys = M.config.keymaps
+  local function map(lhs, rhs, desc)
+    if lhs then
+      vim.keymap.set("n", lhs, rhs, { buffer = buf, desc = desc })
+    end
+  end
+  map(keys.jump_to_error, M.jump_to_error, "Jump to file location under cursor")
+  map(keys.next_error, M.next_error, "Next error location")
+  map(keys.prev_error, M.prev_error, "Previous error location")
+  map(keys.errors_to_quickfix, M.errors_to_quickfix, "Send errors to quickfix")
+
   return buf, win
 end
 
@@ -464,8 +497,9 @@ function M.prev_error()
 end
 
 --- Collect the error locations from the last run (or the whole scrollback if
---- this terminal never ran anything) into the quickfix list, close the
---- terminal window and open quickfix.
+--- this terminal never ran anything) into the quickfix list. Whether the
+--- terminal window is closed and quickfix opened afterwards is controlled by
+--- `config.quickfix`.
 function M.errors_to_quickfix()
   local term_buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
@@ -502,11 +536,18 @@ function M.errors_to_quickfix()
   end
 
   vim.fn.setqflist({}, " ", { title = "tarminal errors", items = items })
-  local win = find_win_for_buf(term_buf)
-  if win then
-    pcall(vim.api.nvim_win_close, win, false)
+  local qf = M.config.quickfix
+  if qf.close_terminal then
+    local win = find_win_for_buf(term_buf)
+    if win then
+      pcall(vim.api.nvim_win_close, win, false)
+    end
   end
-  vim.cmd("botright copen")
+  if qf.open then
+    vim.cmd("botright copen")
+  else
+    vim.notify(("%d error location(s) collected into quickfix"):format(#items), vim.log.levels.INFO)
+  end
 end
 
 -- ============================================================================
@@ -519,7 +560,7 @@ local function get_or_create_shell_term()
     return buf, ensure_window_for_buf(buf)
   end
   local win
-  buf, win = open_shell_term()
+  buf, win = open_shell_term("tarminal://shell")
   vim.b[buf].is_shell = true
   return buf, win
 end
@@ -660,7 +701,7 @@ local function get_or_start_repl(ft)
 
   local dir = vim.fn.expand("%:p:h")
   local win
-  buf, win = open_shell_term()
+  buf, win = open_shell_term("tarminal://repl:" .. ft)
   term_cd(buf, dir)
   term_send(buf, repl_cmd .. "\n")
   vim.b[buf].repl_ft = ft
@@ -763,31 +804,12 @@ end
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   local keys = M.config.keymaps
-  local group = vim.api.nvim_create_augroup("tarminal-term-open", { clear = true })
+  local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
   define_error_highlight()
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = group,
     callback = define_error_highlight,
-  })
-
-  vim.api.nvim_create_autocmd("TermOpen", {
-    group = group,
-    callback = function(ev)
-      vim.opt_local.number = false
-      vim.opt_local.relativenumber = false
-      vim.opt_local.scrolloff = 0
-      vim.bo.filetype = "terminal"
-      local function map(lhs, rhs, desc)
-        if lhs then
-          vim.keymap.set("n", lhs, rhs, { buffer = ev.buf, desc = desc })
-        end
-      end
-      map(keys.jump_to_error, M.jump_to_error, "Jump to file location under cursor")
-      map(keys.next_error, M.next_error, "Next error location")
-      map(keys.prev_error, M.prev_error, "Previous error location")
-      map(keys.errors_to_quickfix, M.errors_to_quickfix, "Send errors to quickfix")
-    end,
   })
 
   local function map(mode, lhs, rhs, desc)
