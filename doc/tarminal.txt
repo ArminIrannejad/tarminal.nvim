@@ -1,0 +1,31 @@
+*tarminal.txt*        For Neovim >= 0.9        Last change: 2026 July 15
+
+==============================================================================
+Table of Contents                                 *tarminal-table-of-contents*
+
+1. Introduction ................................... |tarminal-introduction|
+2. Setup .......................................... |tarminal-setup|
+3. Commands ....................................... |tarminal-commands|
+
+==============================================================================
+1. Introduction                                        *tarminal-introduction*
+
+tarminal.nvim is a Neovim plugin. Describe what it does here.
+
+==============================================================================
+2. Setup                                                      *tarminal-setup*
+
+Call the setup function, optionally passing a table of options: >lua
+
+    require("tarminal").setup({
+      -- your options here
+    })
+<
+
+==============================================================================
+3. Commands                                                *tarminal-commands*
+
+                                                                   *:Tarminal*
+:Tarminal           Open tarminal.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
