@@ -175,6 +175,22 @@ describe("tarminal", function()
     assert.equals(4, col)
   end)
 
+  it("parses sbt-prefixed Scala error locations", function()
+    local file = vim.fn.tempname() .. ".scala"
+    vim.fn.writefile({ "object Main" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local output = "[error] " .. file .. ":12:4: Not found: value broken"
+    local parsed_file, line, col, span_start, span_end = parse(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(12, line)
+    assert.equals(4, col)
+    assert.equals(output:find(file, 1, true), span_start)
+    assert.equals(output:find(":12:4", 1, true) + 4, span_end)
+  end)
+
   it("uses display width when rebuilding wrapped terminal lines", function()
     local logical_line_at = get_upvalue(tarminal.jump_to_error, "logical_line_at")
     local logical, first, last = logical_line_at({ "éé", "tail" }, 2, 4)
