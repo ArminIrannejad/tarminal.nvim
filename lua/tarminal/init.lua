@@ -17,9 +17,15 @@ local uv = vim.uv or vim.loop
 ---@field follow_repl tarminal.Follow
 ---@field park_on_error boolean after a run, highlight error locations and park the cursor on the first one
 ---@field cell_marker string line that delimits REPL cells
----@field runners table<string, string> filetype -> command that runs a file
+---@field time_runs boolean wrap runs in `time` (for compiled runners: the produced binary)
+---@field runners table<string, tarminal.Runner> filetype -> how to run a file
 ---@field repls table<string, string> filetype -> interactive REPL command
 ---@field quickfix tarminal.Quickfix
+
+--- How a file of some filetype is run. A plain string runs the file directly
+--- (`<cmd> <file>`); a table with `compile = true` builds it first and runs
+--- the result (`<cmd> <file> -o <stem> && ./<stem>`). Flags go in `cmd`.
+---@alias tarminal.Runner string|{ cmd: string, compile: boolean? }
 
 --- What errors_to_quickfix does besides populating the quickfix list.
 ---@class tarminal.Quickfix
@@ -33,6 +39,7 @@ local defaults = {
   follow_repl = "none",
   park_on_error = true,
   cell_marker = "# COMMAND ----------",
+  time_runs = true,
   runners = {
     python = "python",
     sh = "bash",
@@ -40,7 +47,7 @@ local defaults = {
     go = "go run",
     haskell = "runghc",
     ocaml = "ocaml",
-    c = "cc",
+    c = { cmd = "cc", compile = true },
   },
   repls = {
     python = "ipython",
@@ -576,26 +583,21 @@ end
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
-  local file_escaped = vim.fn.shellescape(ctx.file)
-  local stem_escaped = vim.fn.shellescape(ctx.stem)
-  local exe = M.config.runners[ctx.ft]
-  if not exe then
+  local runner = M.config.runners[ctx.ft]
+  if not runner then
     return
   end
-
-  if ctx.ft == "c" then
-    return table.concat({
-      exe,
-      "-Wall -Wextra -Wpedantic -O2",
-      file_escaped,
-      "-o",
-      stem_escaped,
-      "&&",
-      "time",
-      "./" .. stem_escaped,
-    }, " ")
+  if type(runner) == "string" then
+    runner = { cmd = runner }
   end
-  return "time " .. exe .. " " .. file_escaped
+
+  local time = M.config.time_runs and "time " or ""
+  local file = vim.fn.shellescape(ctx.file)
+  if runner.compile then
+    local out = vim.fn.shellescape(ctx.stem)
+    return ("%s %s -o %s && %s./%s"):format(runner.cmd, file, out, time, out)
+  end
+  return time .. runner.cmd .. " " .. file
 end
 
 --- Save and run the current file in the shared shell terminal. When invoked
