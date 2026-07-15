@@ -13,16 +13,26 @@ describe("tarminal", function()
     assert.equals("ipython", tarminal.config.repls.python)
   end)
 
-  it("setup registers the configured keymaps", function()
-    local tarminal = require("tarminal")
-    tarminal.setup()
-    local found = false
+  local function has_normal_map(desc)
     for _, map in ipairs(vim.api.nvim_get_keymap("n")) do
-      if map.desc == "Toggle shell terminal" then
-        found = true
+      if map.desc == desc then
+        return true
       end
     end
-    assert.is_true(found)
+    return false
+  end
+
+  it("setup creates no keymaps by default", function()
+    local tarminal = require("tarminal")
+    tarminal.setup()
+    assert.is_false(has_normal_map("Toggle shell terminal"))
+  end)
+
+  it("setup maps only the configured keys", function()
+    local tarminal = require("tarminal")
+    tarminal.setup({ keymaps = { toggle = "<leader>ts" } })
+    assert.is_true(has_normal_map("Toggle shell terminal"))
+    assert.is_false(has_normal_map("Run current file in terminal"))
   end)
 
   it("toggle opens and closes the shell terminal split", function()
