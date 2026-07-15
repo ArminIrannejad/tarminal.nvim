@@ -39,8 +39,12 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       time_runs = true,
       runners = {
         python = "python",
-        c = { cmd = "cc", compile = true },
+        c = "cc",
         ...
+      },
+      compilers = {
+        "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",
+        "gfortran", "rustc", "ghc",
       },
       repls = { python = "ipython", lua = "lua -i", ... },
       quickfix = {
@@ -55,13 +59,14 @@ yourself to the |:Tarminal| subcommands or the Lua functions; see
 |tarminal-mappings|.
 
 Runner and REPL tables are merged by filetype, so each default is
-independently overridable. A string runner runs the file directly
-(`python foo.py`); a table with `compile = true` compiles it first and runs
-the result (`cc foo.c -o foo && ./foo`). Flags go in the command itself —
-the merge is per-field, so `runners = { c = { cmd = "cc -Wall -Wextra" } }`
-changes only the compile command and keeps `compile = true` from the
-default. With `time_runs = true` (the default) the run — for compiled
-runners, the produced binary — is wrapped in `time`.
+independently overridable. For an interpreted runner, tarminal appends the
+file (`python foo.py`). If the command's first program is listed in
+`compilers`, tarminal builds the file and runs the result automatically:
+`c = "clang -Wpedantic -Wall"` becomes
+`clang -Wpedantic -Wall foo.c -o foo && ./foo`. Executable paths and version
+suffixes are recognized too (for example, `/usr/bin/clang-17`). Add
+compatible compiler names to `compilers` as needed. With `time_runs = true`
+(the default), only the produced binary is timed, not compilation.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal

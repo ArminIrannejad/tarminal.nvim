@@ -9,10 +9,10 @@ cells, and clickable error locations in terminal output.
 - **Shared shell terminal** — toggle a bottom split running your shell;
   its buffer is reused across runs and can be shown independently per tab.
 - **Run the current file** — saves the buffer and runs it with the runner
-  configured for its filetype (wrapped in `time` unless disabled), with a
-  banner separating runs. From a non-file buffer it re-runs the last run.
-  Compiled runners (C by default) build the file and run the resulting
-  binary.
+  configured for its filetype (`time`d unless disabled), with a banner
+  separating runs. From a non-file buffer it re-runs the last run. Compiler
+  commands are recognized automatically, so `c = "clang -Wall"` compiles
+  the file and runs the resulting binary.
 - **Error navigation** — file locations in the output (`foo.c:12:5:`,
   `File "foo.py", line 12`, …) are highlighted; jump to the location under
   the cursor (wrapped long lines are handled), move between locations, or
@@ -88,15 +88,19 @@ require("tarminal").setup({
   follow_repl = "none",                 -- focus after sending to a REPL
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   cell_marker = "# COMMAND ----------", -- line that delimits REPL cells
-  time_runs = true,                     -- wrap runs in `time` (compiled runners: the binary)
-  runners = {                           -- filetype -> how to run a file
-    python = "python",                  --   string: run the file, `python foo.py`
+  time_runs = true,                     -- `time` the run (for compiled files: the binary)
+  runners = {                           -- filetype -> command used to run a file
+    python = "python",                  --   interpreted: `python foo.py`
     sh = "bash",
     lua = "lua",
     go = "go run",
     haskell = "runghc",
     ocaml = "ocaml",
-    c = { cmd = "cc", compile = true }, --   compile: `cc foo.c -o foo && ./foo`
+    c = "cc",                          --   compiler: `cc foo.c -o foo && ./foo`
+  },
+  compilers = {                         -- executable names recognized as compilers
+    "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",
+    "gfortran", "rustc", "ghc",
   },
   repls = {                             -- filetype -> interactive REPL command
     python = "ipython",
@@ -112,11 +116,13 @@ require("tarminal").setup({
 ```
 
 Runner and REPL tables are merged by filetype, so every default command can be
-overridden independently; the same goes for `repls`. A string runner runs the
-file directly; a table with `compile = true` builds it first and runs the
-result. Flags belong in the command itself, and since the merge is per-field,
-`runners = { c = { cmd = "clang -Wall -Wextra -O2" } }` changes only the
-compile command while keeping `compile = true` from the default.
+overridden independently; the same goes for `repls`. For an interpreted
+runner, tarminal appends the file (`python foo.py`). When the command's first
+program is listed in `compilers`, tarminal instead builds and runs it
+(`clang -Wall foo.c -o foo && ./foo`). Paths and version suffixes are handled,
+so `/usr/bin/clang-17 -Wall` is recognized too. Add another executable name to
+`compilers` when using a compatible compiler that is not included by default.
+With `time_runs` enabled, only the produced binary is timed, not compilation.
 
 Set `quickfix = { open = false, close_terminal = false }` if you want
 `errors_to_quickfix` to only populate the quickfix list, leaving the terminal
@@ -133,7 +139,7 @@ filetype (which fires for every terminal the plugin creates):
   "ArminIrannejad/tarminal.nvim",
   opts = {
     runners = {
-      c = { cmd = "cc -Wall -Wextra -Wpedantic -O2" },
+      c = "clang -Wall -Wextra -Wpedantic -O2",
     },
   },
   keys = {
