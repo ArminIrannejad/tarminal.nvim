@@ -14,10 +14,10 @@ cells, and clickable error locations in terminal output.
   configured `runners.c` command (`cc` by default), using
   `-Wall -Wextra -Wpedantic -O2`, and then executed.
 - **Error navigation** — file locations in the output (`foo.c:12:5:`,
-  `File "foo.py", line 12`, …) are highlighted; `<CR>` on a line jumps to
-  the location (wrapped long lines are handled), `]e`/`[e` move between
-  locations, `<C-q>` collects them into the quickfix list. After a run the
-  cursor is parked on the first error so a single `<CR>` jumps to it.
+  `File "foo.py", line 12`, …) are highlighted; jump to the location under
+  the cursor (wrapped long lines are handled), move between locations, or
+  collect them into the quickfix list. After a run the cursor is parked on
+  the first error so a single jump lands on it.
 - **REPL integration** — send the visual selection or the "cell" around the
   cursor (delimited by `cell_marker` lines) to a per-filetype REPL, wrapped
   in bracketed paste so multi-line blocks paste cleanly.
@@ -47,9 +47,10 @@ require("tarminal").setup()
 
 ## Usage
 
-**No keymaps are created by default** — everything is available through the
-`:Tarminal` command, and you opt into keymaps via the `keymaps` option (see
-the [example setup](#example-setup) below).
+**tarminal never creates keymaps** — `setup()` takes settings only. Every
+action is available through the `:Tarminal` command and as a Lua function
+(`require("tarminal").toggle()`, `.run()`, …), so you map exactly the keys
+you want yourself (see the [example setup](#example-setup) below).
 
 - `:Tarminal` / `:Tarminal toggle` — show/hide the shared shell terminal
 - `:Tarminal run` — save and run the current file (from a non-file buffer:
@@ -106,40 +107,54 @@ require("tarminal").setup({
     open = true,                        --   open the quickfix window after collecting
     close_terminal = true,              --   close the terminal window after collecting
   },
-  keymaps = {},                         -- none; every action stays reachable via :Tarminal
 })
 ```
 
 Runner and REPL tables are merged by filetype, so every default command can be
-overridden independently. For example, `runners = { c = "clang" }` uses Clang
-for C while retaining the other defaults.
+overridden independently — `runners = { c = "clang" }` uses Clang for C while
+retaining all the other defaults; the same goes for `repls`.
+
+Set `quickfix = { open = false, close_terminal = false }` if you want
+`errors_to_quickfix` to only populate the quickfix list, leaving the terminal
+window exactly as it is.
 
 ## Example setup
 
-The author's opinionated setup, with all keymaps wired up:
+The author's opinionated setup — global keymaps in the lazy.nvim spec, and
+buffer-local keymaps for tarminal's own terminals via the `tarminal`
+filetype (which fires for every terminal the plugin creates):
 
 ```lua
 {
   "ArminIrannejad/tarminal.nvim",
-  opts = {
-    keymaps = {
-      -- global in their respective normal/visual modes
-      toggle = "<leader>ts",         -- toggle the shared shell terminal
-      run = "<leader>ru",            -- save and run the current file
-      send_selection = "<leader>ri", -- visual mode: send selection to REPL
-      send_cell = "<leader>rc",      -- send cell around cursor to REPL
-      -- buffer-local in tarminal's own terminals
-      term_normal = "<Esc><Esc>",    -- terminal mode: exit to normal mode
-      jump_to_error = "<CR>",        -- jump to file location on this line
-      next_error = "]e",             -- next error location
-      prev_error = "[e",             -- previous error location
-      errors_to_quickfix = "<C-q>",  -- errors to quickfix and open it
-    },
+  opts = {},
+  keys = {
+    { "<leader>ts", function() require("tarminal").toggle() end, desc = "Toggle shell terminal" },
+    { "<leader>ru", function() require("tarminal").run() end, desc = "Run current file in terminal" },
+    { "<leader>ri", function() require("tarminal").send_selection() end, mode = "x", desc = "Send selection to REPL" },
+    { "<leader>rc", function() require("tarminal").send_cell() end, desc = "Send cell to REPL" },
   },
+  init = function()
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = "tarminal",
+      callback = function(ev)
+        local t = require("tarminal")
+        local function map(mode, lhs, rhs, desc)
+          vim.keymap.set(mode, lhs, rhs, { buffer = ev.buf, desc = desc })
+        end
+        map("t", "<Esc><Esc>", [[<C-\><C-n>]], "Exit terminal mode")
+        map("n", "<CR>", t.jump_to_error, "Jump to file location on this line")
+        map("n", "]e", t.next_error, "Next error location")
+        map("n", "[e", t.prev_error, "Previous error location")
+        map("n", "<C-q>", t.errors_to_quickfix, "Errors to quickfix")
+      end,
+    })
+  end,
 }
 ```
 
-Only the keys you set are mapped, so pick the subset you want.
+With `vim.pack` the same keymaps work verbatim — just call
+`require("tarminal").setup()` first and drop the lazy.nvim spec wrapper.
 
 ## License
 

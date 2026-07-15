@@ -42,9 +42,12 @@ Call the setup function, optionally passing overrides for the defaults: >lua
         open = true,            -- open quickfix after errors_to_quickfix
         close_terminal = true,  -- close the terminal window as well
       },
-      keymaps = {},             -- none by default, see |tarminal-mappings|
     })
 <
+
+Options hold settings only — tarminal never creates keymaps. Map keys
+yourself to the |:Tarminal| subcommands or the Lua functions; see
+|tarminal-mappings|.
 
 Runner and REPL tables are merged by filetype, so each default is
 independently overridable. For example, `runners = { c = "clang" }` replaces
@@ -87,24 +90,36 @@ never touches terminal buffers it did not create.
 ==============================================================================
 4. Mappings                                                *tarminal-mappings*
 
-No mappings are created by default. Set the ones you want in the `keymaps`
-option of |tarminal-setup|; only the keys you set are mapped. Example with
-everything wired up: >lua
+No mappings are ever created by the plugin. Every action is exposed both as
+a |:Tarminal| subcommand and as a Lua function on the module
+(`require("tarminal").toggle()`, `.run()`, `.send_cell()`,
+`.send_selection()`, `.jump_to_error()`, `.next_error()`, `.prev_error()`,
+`.errors_to_quickfix()`), so map whatever keys you like: >lua
 
-    require("tarminal").setup({
-      keymaps = {
-        -- global in their respective normal/visual modes
-        toggle = "<leader>ts",         -- toggle the shared shell terminal
-        run = "<leader>ru",            -- save and run the current file
-        send_selection = "<leader>ri", -- (visual) send selection to REPL
-        send_cell = "<leader>rc",      -- send cell around cursor to REPL
-        -- buffer-local in tarminal's own terminals
-        term_normal = "<Esc><Esc>",    -- (terminal mode) exit to normal mode
-        jump_to_error = "<CR>",        -- jump to file location on this line
-        next_error = "]e",             -- next error location
-        prev_error = "[e",             -- previous error location
-        errors_to_quickfix = "<C-q>",  -- errors to quickfix and open it
-      },
+    local t = require("tarminal")
+    vim.keymap.set("n", "<leader>ts", t.toggle, { desc = "Toggle terminal" })
+    vim.keymap.set("n", "<leader>ru", t.run, { desc = "Run current file" })
+    vim.keymap.set("x", "<leader>ri", t.send_selection, { desc = "Send selection" })
+    vim.keymap.set("n", "<leader>rc", t.send_cell, { desc = "Send cell" })
+<
+
+tarminal's own terminal buffers get the `tarminal` filetype, so buffer-local
+mappings (error navigation, leaving terminal-mode) hook onto the |FileType|
+event without touching any other terminal: >lua
+
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = "tarminal",
+      callback = function(ev)
+        local t = require("tarminal")
+        local function map(mode, lhs, rhs)
+          vim.keymap.set(mode, lhs, rhs, { buffer = ev.buf })
+        end
+        map("t", "<Esc><Esc>", [[<C-\><C-n>]])
+        map("n", "<CR>", t.jump_to_error)
+        map("n", "]e", t.next_error)
+        map("n", "[e", t.prev_error)
+        map("n", "<C-q>", t.errors_to_quickfix)
+      end,
     })
 <
 
