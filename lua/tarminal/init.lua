@@ -19,7 +19,21 @@ local uv = vim.uv or vim.loop
 ---@field cell_marker string line that delimits REPL cells
 ---@field runners table<string, string> filetype -> command that runs a file
 ---@field repls table<string, string> filetype -> interactive REPL command
----@field keymaps table<string, string>
+---@field keymaps tarminal.Keymaps
+
+--- No keymaps are created unless set here (see the README's example setup).
+--- Every action is also reachable via :Tarminal <action>.
+---@class tarminal.Keymaps
+---@field toggle string|nil normal mode: show/hide the shared shell terminal
+---@field run string|nil normal mode: save and run the current file
+---@field send_selection string|nil visual mode: send selection to the REPL
+---@field send_cell string|nil normal mode: send cell around cursor to the REPL
+---@field term_normal string|nil terminal mode: exit to normal mode
+---@field jump_to_error string|nil terminal buffers, normal mode: jump to location on line
+---@field next_error string|nil terminal buffers, normal mode: next error location
+---@field prev_error string|nil terminal buffers, normal mode: previous error location
+---@field errors_to_quickfix string|nil terminal buffers, normal mode: errors to quickfix
+
 M.config = {
   split_height = 12,
   shell = vim.env.SHELL or "/bin/bash",
@@ -42,16 +56,7 @@ M.config = {
     haskell = "ghci",
     ocaml = "ocaml",
   },
-  keymaps = {
-    toggle = "<leader>ts",
-    run = "<leader>ru",
-    send_selection = "<leader>ri",
-    send_cell = "<leader>rc",
-    jump_to_error = "<CR>",
-    next_error = "]e",
-    prev_error = "[e",
-    errors_to_quickfix = "<C-q>",
-  },
+  keymaps = {},
 }
 
 local function bottom_split()
@@ -774,7 +779,9 @@ function M.setup(opts)
       vim.opt_local.scrolloff = 0
       vim.bo.filetype = "terminal"
       local function map(lhs, rhs, desc)
-        vim.keymap.set("n", lhs, rhs, { buffer = ev.buf, desc = desc })
+        if lhs then
+          vim.keymap.set("n", lhs, rhs, { buffer = ev.buf, desc = desc })
+        end
       end
       map(keys.jump_to_error, M.jump_to_error, "Jump to file location under cursor")
       map(keys.next_error, M.next_error, "Next error location")
@@ -783,11 +790,16 @@ function M.setup(opts)
     end,
   })
 
-  vim.keymap.set("t", "<Esc><Esc>", "<C-\\><C-n>")
-  vim.keymap.set("n", keys.toggle, M.toggle, { desc = "Toggle shell terminal" })
-  vim.keymap.set("n", keys.run, M.run, { desc = "Run current file in terminal" })
-  vim.keymap.set("x", keys.send_selection, M.send_selection, { desc = "Send selection to REPL" })
-  vim.keymap.set("n", keys.send_cell, M.send_cell, { desc = "Send cell to REPL" })
+  local function map(mode, lhs, rhs, desc)
+    if lhs then
+      vim.keymap.set(mode, lhs, rhs, { desc = desc })
+    end
+  end
+  map("t", keys.term_normal, "<C-\\><C-n>", "Terminal: exit to normal mode")
+  map("n", keys.toggle, M.toggle, "Toggle shell terminal")
+  map("n", keys.run, M.run, "Run current file in terminal")
+  map("x", keys.send_selection, M.send_selection, "Send selection to REPL")
+  map("n", keys.send_cell, M.send_cell, "Send cell to REPL")
 end
 
 return M
