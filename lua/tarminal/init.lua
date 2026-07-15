@@ -213,6 +213,32 @@ local function resolve_file(path, term_buf)
   end
 end
 
+--- Resolve a captured location candidate, allowing diagnostic tools to put a
+--- prefix before the path. For example, sbt emits
+--- `[error] /path/Main.scala:12:4`. Try the complete candidate first so paths
+--- containing spaces keep working, then successively discard leading words.
+---@param candidate string
+---@param term_buf integer
+---@return string|nil path, integer|nil offset byte offset of the path in `candidate`
+local function resolve_file_suffix(candidate, term_buf)
+  local trimmed = vim.trim(candidate)
+  local trim_offset = candidate:find(trimmed, 1, true) - 1
+  local start = 1
+
+  while true do
+    local path = resolve_file(trimmed:sub(start), term_buf)
+    if path then
+      return path, trim_offset + start - 1
+    end
+
+    local _, prefix_end = trimmed:find("%s+", start)
+    if not prefix_end then
+      return
+    end
+    start = prefix_end + 1
+  end
+end
+
 --- First location on the line that points at a real file. Covers
 --- cc/go/ghc/lua style ("foo.c:12:5:") and python/ocaml style
 --- ('File "foo.py", line 12') messages.
@@ -235,18 +261,7 @@ local function parse_error_line(line, term_buf)
     if not s then
       break
     end
-    local candidate = vim.trim(f)
-    local offset = f:find(candidate, 1, true) - 1
-    local path = resolve_file(candidate, term_buf)
-    if not path then
-      -- Rust and a few other tools prefix locations with an arrow.
-      local without_arrow = candidate:gsub("^.*%-%->%s*", "")
-      if without_arrow ~= candidate then
-        offset = offset + candidate:find(without_arrow, 1, true) - 1
-        candidate = without_arrow
-        path = resolve_file(candidate, term_buf)
-      end
-    end
+    local path, offset = resolve_file_suffix(f, term_buf)
     if path then
       return path, tonumber(l), tonumber(c), s + offset, e
     end
