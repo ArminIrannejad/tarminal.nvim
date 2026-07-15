@@ -36,7 +36,12 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       follow_repl = "none",
       park_on_error = true,
       cell_marker = "# COMMAND ----------",
-      runners = { python = "python", c = "cc", ... },
+      time_runs = true,
+      runners = {
+        python = "python",
+        c = { cmd = "cc", compile = true },
+        ...
+      },
       repls = { python = "ipython", lua = "lua -i", ... },
       quickfix = {
         open = true,            -- open quickfix after errors_to_quickfix
@@ -50,10 +55,13 @@ yourself to the |:Tarminal| subcommands or the Lua functions; see
 |tarminal-mappings|.
 
 Runner and REPL tables are merged by filetype, so each default is
-independently overridable. For example, `runners = { c = "clang" }` replaces
-the default C compiler (`cc`) without removing the other runners. C files are
-compiled with the configured command plus `-Wall -Wextra -Wpedantic -O2`, then
-executed.
+independently overridable. A string runner runs the file directly
+(`python foo.py`); a table with `compile = true` compiles it first and runs
+the result (`cc foo.c -o foo && ./foo`). Flags go in the command itself —
+the merge is per-field, so `runners = { c = { cmd = "cc -Wall -Wextra" } }`
+changes only the compile command and keeps `compile = true` from the
+default. With `time_runs = true` (the default) the run — for compiled
+runners, the produced binary — is wrapped in `time`.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
