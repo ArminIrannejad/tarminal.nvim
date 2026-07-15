@@ -360,6 +360,7 @@ function M.jump_to_error()
 end
 
 local WATCH_INTERVAL = 200
+-- of terminal *silence* — new output resets it, so long builds stay watched
 local WATCH_TIMEOUT = 30000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
@@ -389,9 +390,10 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
   end
 end
 
---- Row of the last printed run banner. The echoed command contains the
---- banner token too (and survives in scrollback), so only accept lines that
---- actually start with the banner ruler.
+--- Row of the last printed run banner. The token is assembled by printf at
+--- run time (from a %d argument), so the echoed command never contains the
+--- finished string; requiring the banner ruler at the start of the line
+--- additionally guards against program output that quotes a banner.
 ---@param lines string[]
 ---@param banner_token string
 ---@return integer|nil row
@@ -406,11 +408,14 @@ end
 --- Watch the terminal output printed after this run's banner: pin the window
 --- view so the banner starts at the top, highlight every error location and
 --- park the cursor on the first one, so a single <CR> jumps to it. Output
---- arrives async, so this polls for the banner token and gives up quietly
---- after a while.
+--- arrives async, so this polls: it finishes when the run's done marker
+--- appears (printed after the runner, whatever its exit status), and gives
+--- up quietly after WATCH_TIMEOUT of terminal silence — e.g. when the
+--- command never produced its banner.
 ---@param term_buf integer
 ---@param banner_token string unique marker this run prints before its output
-local function watch_run_errors(term_buf, banner_token)
+---@param done_token string unique marker this run prints after its output
+local function watch_run_errors(term_buf, banner_token, done_token)
   if M._watch_timer then
     M._watch_timer:stop()
     M._watch_timer:close()
@@ -439,18 +444,22 @@ local function watch_run_errors(term_buf, banner_token)
       if timer:is_closing() then
         return
       end
-      elapsed = elapsed + WATCH_INTERVAL
-      if elapsed > WATCH_TIMEOUT or not vim.api.nvim_buf_is_valid(term_buf) then
+      if not vim.api.nvim_buf_is_valid(term_buf) then
         stop()
         return
       end
 
-      -- nothing new since the last scan
+      -- nothing new since the last scan: only prolonged silence gives up
       local tick = vim.api.nvim_buf_get_changedtick(term_buf)
       if tick == last_tick then
+        elapsed = elapsed + WATCH_INTERVAL
+        if elapsed > WATCH_TIMEOUT then
+          stop()
+        end
         return
       end
       last_tick = tick
+      elapsed = 0
 
       local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
       local banner_row = find_banner_row(lines, banner_token)
@@ -487,6 +496,16 @@ local function watch_run_errors(term_buf, banner_token)
           end
         end
         i = last + 1
+      end
+
+      -- The done marker means this scan saw the run's complete output.
+      -- Matched without the ^===== anchor: a runner whose output lacks a
+      -- trailing newline leaves the marker glued to its last line.
+      for row = #lines, banner_row + 1, -1 do
+        if lines[row]:find(done_token, 1, true) then
+          stop()
+          return
+        end
       end
     end)
   )
@@ -689,21 +708,28 @@ function M.run()
 
   M._run_id = (M._run_id or 0) + 1
   local banner = ("RUN[%d]"):format(M._run_id)
+  local done = ("DONE[%d]"):format(M._run_id)
 
   -- Feed the screen into scrollback with newlines before homing the cursor:
   -- an ANSI scroll (or `clear`) erases the scrolled-out lines, newline-driven
   -- scrolling preserves them, so previous runs stay scrollable. The watcher
   -- pins the window view to this run's banner so it still starts at the top.
+  --
+  -- Both marker tokens are assembled by printf from a %d argument, so the
+  -- echoed command never contains the finished token and can't be mistaken
+  -- for a marker, however the echo wraps. The done marker is chained with
+  -- `;` so it also prints when the run fails, telling the watcher the
+  -- output is complete.
   local scroll = vim.api.nvim_win_get_height(term_win)
   local cmd = table.concat({
     "cd " .. vim.fn.shellescape(ctx.dir),
     "printf '" .. ("\\n"):rep(scroll) .. "\\033[H'",
-    "printf '\\n===== " .. banner .. ": %s =====\\n' \"$(date '+%H:%M:%S')\"",
-    "\n" .. runner_cmd,
+    "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
+    "\n" .. runner_cmd .. "; printf '===== DONE[%d] =====\\n' " .. M._run_id,
   }, " && ") .. "\n"
 
   if M.config.park_on_error then
-    watch_run_errors(term_buf, banner)
+    watch_run_errors(term_buf, banner, done)
   end
   term_send(term_buf, cmd)
   vim.b[term_buf].term_cwd = ctx.dir
