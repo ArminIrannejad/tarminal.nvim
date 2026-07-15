@@ -4,5 +4,7 @@ local plenary = root .. "/.deps/plenary.nvim"
 
 vim.opt.runtimepath:prepend(root)
 vim.opt.runtimepath:prepend(plenary)
+vim.opt.swapfile = false
+vim.opt.shadafile = "NONE"
 
 vim.cmd("runtime! plugin/plenary.vim")
