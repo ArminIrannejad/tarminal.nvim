@@ -7,4 +7,6 @@ vim.opt.runtimepath:prepend(plenary)
 vim.opt.swapfile = false
 vim.opt.shadafile = "NONE"
 
+vim.env.SHELL = "/bin/sh"
+
 vim.cmd("runtime! plugin/plenary.vim")

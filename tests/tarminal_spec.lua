@@ -24,6 +24,14 @@ describe("tarminal", function()
     tarminal.setup()
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "terminal" then
+        -- Force-deleting a terminal buffer while its job is alive with
+        -- output in flight wedges the next terminal's refresh into a busy
+        -- loop (nvim 0.12.4); stop the job and wait for it to exit first.
+        local job = vim.b[buf].terminal_job_id
+        if job then
+          pcall(vim.fn.jobstop, job)
+          pcall(vim.fn.jobwait, { job }, 1000)
+        end
         pcall(vim.api.nvim_buf_delete, buf, { force = true })
       end
     end
@@ -43,31 +51,19 @@ describe("tarminal", function()
     assert.equals("ipython", tarminal.config.repls.python)
   end)
 
-  local function has_normal_map(desc)
-    for _, map in ipairs(vim.api.nvim_get_keymap("n")) do
-      if map.desc == desc then
-        return true
+  it("setup creates no keymaps", function()
+    tarminal.setup()
+    for _, mode in ipairs({ "n", "x", "t" }) do
+      for _, map in ipairs(vim.api.nvim_get_keymap(mode)) do
+        assert.is_falsy((map.desc or ""):lower():find("tarminal"))
       end
     end
-    return false
-  end
-
-  it("setup creates no keymaps by default", function()
-    tarminal.setup()
-    assert.is_false(has_normal_map("Toggle shell terminal"))
   end)
 
-  it("setup maps only the configured keys", function()
-    tarminal.setup({ keymaps = { toggle = "<leader>ts" } })
-    assert.is_true(has_normal_map("Toggle shell terminal"))
-    assert.is_false(has_normal_map("Run current file in terminal"))
-  end)
-
-  it("setup resets previous options and mappings", function()
-    tarminal.setup({ split_height = 20, keymaps = { toggle = "<leader>ts" } })
+  it("setup resets previous options", function()
+    tarminal.setup({ split_height = 20 })
     tarminal.setup()
     assert.equals(12, tarminal.config.split_height)
-    assert.is_false(has_normal_map("Toggle shell terminal"))
   end)
 
   it("uses the configured C compiler", function()
@@ -194,16 +190,101 @@ describe("tarminal", function()
   end)
 
   it("does not touch terminals it did not create", function()
-    tarminal.setup({ keymaps = { term_normal = "<Esc><Esc>", jump_to_error = "<CR>" } })
-    for _, map in ipairs(vim.api.nvim_get_keymap("t")) do
-      assert.is_not.equals("Terminal: exit to normal mode", map.desc)
-    end
     vim.cmd("terminal")
     local buf = vim.api.nvim_get_current_buf()
     assert.is_not.equals("tarminal", vim.bo[buf].filetype)
-    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
-      assert.is_not.equals("Jump to file location under cursor", map.desc)
-    end
     vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("fires FileType tarminal so users can add buffer-local keymaps", function()
+    local mapped_buf
+    local autocmd = vim.api.nvim_create_autocmd("FileType", {
+      pattern = "tarminal",
+      callback = function(ev)
+        mapped_buf = ev.buf
+        vim.keymap.set("n", "<CR>", tarminal.jump_to_error, { buffer = ev.buf, desc = "tarminal jump" })
+      end,
+    })
+    tarminal.toggle()
+    local buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_del_autocmd(autocmd)
+
+    assert.equals(buf, mapped_buf)
+    local found
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+      if map.desc == "tarminal jump" then
+        found = true
+      end
+    end
+    assert.is_true(found)
+  end)
+
+  it("clears stale error highlights when a new run starts", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    tarminal.run()
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+
+    -- a leftover highlight from a previous run, sitting on a line the
+    -- terminal will rewrite in place
+    local ns = get_upvalue(tarminal.run, "ns")
+    vim.api.nvim_buf_set_extmark(term_buf, ns, 0, 0, { end_col = 1, hl_group = "TarminalError", strict = false })
+
+    tarminal.run()
+    vim.fn.delete(file)
+    assert.equals(0, #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}))
+  end)
+
+  it("navigates and jumps between error locations, repeatedly", function()
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    -- print two error locations without the echoed command itself containing
+    -- a parseable "file:line" (the path is passed as a printf argument)
+    vim.fn.chansend(
+      vim.b[term_buf].terminal_job_id,
+      ("printf '%%s:1:1: aaa\\n%%s:2:2: bbb\\n' %s %s\n"):format(file, file)
+    )
+    -- the echoed command also contains ":2:2: bbb" (inside the format
+    -- string), so wait for the expanded output where it follows the path
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:2: bbb", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { vim.api.nvim_buf_line_count(term_buf), 0 })
+    tarminal.prev_error()
+    local line = vim.api.nvim_get_current_line()
+    assert.is_truthy(line:find(":2:2: bbb", 1, true))
+
+    tarminal.jump_to_error()
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 2, 1 }, vim.api.nvim_win_get_cursor(0))
+
+    -- back in the terminal, navigation still works after the jump
+    vim.api.nvim_set_current_win(term_win)
+    tarminal.prev_error()
+    assert.is_truthy(vim.api.nvim_get_current_line():find(":1:1: aaa", 1, true))
+    tarminal.next_error()
+    assert.is_truthy(vim.api.nvim_get_current_line():find(":2:2: bbb", 1, true))
+
+    tarminal.jump_to_error()
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 2, 1 }, vim.api.nvim_win_get_cursor(0))
+    vim.fn.delete(file)
   end)
 end)
