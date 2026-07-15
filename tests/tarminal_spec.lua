@@ -248,35 +248,25 @@ describe("tarminal", function()
   it("navigates and jumps between error locations, repeatedly", function()
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
+
+    -- Run a script that prints two error locations instead of an
+    -- interactive shell: no prompt and no command echo, so the terminal
+    -- content is identical whatever sh the machine has (bash, dash, ...).
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      ("printf '%%s:1:1: aaa\\n%%s:2:2: bbb\\n' %s %s"):format(file, file),
+      "sleep 10",
+    }, script)
+    tarminal.setup({ shell = "sh " .. script })
     tarminal.toggle()
     local term_buf = vim.api.nvim_get_current_buf()
     local term_win = vim.api.nvim_get_current_win()
 
-    -- print two error locations without the echoed command itself containing
-    -- a parseable "file:line" (the path is passed as a printf argument)
-    vim.fn.chansend(
-      vim.b[term_buf].terminal_job_id,
-      ("printf '%%s:1:1: aaa\\n%%s:2:2: bbb\\n' %s %s\n"):format(file, file)
-    )
-    -- the echoed command also contains ":2:2: bbb" (inside the format
-    -- string), so wait for the expanded output where it follows the path
     local seen = vim.wait(4000, function()
       local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
       return text:find(file .. ":2:2: bbb", 1, true) ~= nil
     end, 50)
     assert.is_true(seen)
-
-    -- let the output settle (trailing prompt included): a late arrival
-    -- would make the terminal follow its output and move the cursor
-    local tick = vim.api.nvim_buf_get_changedtick(term_buf)
-    vim.wait(2000, function()
-      local t = vim.api.nvim_buf_get_changedtick(term_buf)
-      if t ~= tick then
-        tick = t
-        return false
-      end
-      return true
-    end, 100)
 
     vim.api.nvim_win_set_cursor(term_win, { vim.api.nvim_buf_line_count(term_buf), 0 })
     tarminal.prev_error()
@@ -301,5 +291,6 @@ describe("tarminal", function()
     assert.equals(file, vim.api.nvim_buf_get_name(0))
     assert.same({ 2, 1 }, vim.api.nvim_win_get_cursor(0))
     vim.fn.delete(file)
+    vim.fn.delete(script)
   end)
 end)
