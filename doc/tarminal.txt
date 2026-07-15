@@ -38,6 +38,10 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       cell_marker = "# COMMAND ----------",
       runners = { python = "python", c = "cc", ... },
       repls = { python = "ipython", lua = "lua -i", ... },
+      quickfix = {
+        open = true,            -- open quickfix after errors_to_quickfix
+        close_terminal = true,  -- close the terminal window as well
+      },
       keymaps = {},             -- none by default, see |tarminal-mappings|
     })
 <
@@ -45,6 +49,14 @@ Call the setup function, optionally passing overrides for the defaults: >lua
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
 window in normal mode, "insert" moves there and enters terminal-mode.
+
+With `quickfix = { open = false, close_terminal = false }`,
+errors_to_quickfix only populates the quickfix list and reports how many
+locations it found, leaving the terminal untouched.
+
+tarminal's terminal buffers are named `tarminal://shell` and
+`tarminal://repl:<filetype>` and get the `tarminal` filetype. The plugin
+never touches terminal buffers it did not create.
 
 ==============================================================================
 3. Commands                                                *tarminal-commands*
@@ -61,8 +73,9 @@ window in normal mode, "insert" moves there and enters terminal-mode.
 :Tarminal next_error      Move to the next error location.
 :Tarminal prev_error      Move to the previous error location.
 :Tarminal errors_to_quickfix
-                          Collect error locations into the quickfix list,
-                          close the terminal window and open quickfix.
+                          Collect error locations into the quickfix list.
+                          Closing the terminal window and opening quickfix
+                          are controlled by the `quickfix` option.
 
 ==============================================================================
 4. Mappings                                                *tarminal-mappings*
@@ -79,7 +92,7 @@ everything wired up: >lua
         send_selection = "<leader>ri", -- (visual) send selection to REPL
         send_cell = "<leader>rc",      -- send cell around cursor to REPL
         term_normal = "<Esc><Esc>",    -- (terminal mode) exit to normal mode
-        -- buffer-local in terminal buffers, normal mode
+        -- buffer-local in tarminal's own terminals, normal mode
         jump_to_error = "<CR>",        -- jump to file location on this line
         next_error = "]e",             -- next error location
         prev_error = "[e",             -- previous error location
