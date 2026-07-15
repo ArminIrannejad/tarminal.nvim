@@ -20,25 +20,11 @@ local uv = vim.uv or vim.loop
 ---@field runners table<string, string> filetype -> command that runs a file
 ---@field repls table<string, string> filetype -> interactive REPL command
 ---@field quickfix tarminal.Quickfix
----@field keymaps tarminal.Keymaps
 
 --- What errors_to_quickfix does besides populating the quickfix list.
 ---@class tarminal.Quickfix
 ---@field open boolean open the quickfix window after collecting
 ---@field close_terminal boolean close the terminal window after collecting
-
---- No keymaps are created unless set here (see the README's example setup).
---- Every action is also reachable via :Tarminal <action>.
----@class tarminal.Keymaps
----@field toggle string|nil normal mode: show/hide the shared shell terminal
----@field run string|nil normal mode: save and run the current file
----@field send_selection string|nil visual mode: send selection to the REPL
----@field send_cell string|nil normal mode: send cell around cursor to the REPL
----@field term_normal string|nil terminal mode: exit to normal mode
----@field jump_to_error string|nil terminal buffers, normal mode: jump to location on line
----@field next_error string|nil terminal buffers, normal mode: next error location
----@field prev_error string|nil terminal buffers, normal mode: previous error location
----@field errors_to_quickfix string|nil terminal buffers, normal mode: errors to quickfix
 
 local defaults = {
   split_height = 12,
@@ -66,7 +52,6 @@ local defaults = {
     open = true,
     close_terminal = true,
   },
-  keymaps = {},
 }
 
 M.config = vim.deepcopy(defaults)
@@ -95,29 +80,6 @@ local function find_win_for_buf(buf)
       return w
     end
   end
-end
-
-local function apply_terminal_keymaps(buf)
-  M._terminal_maps = M._terminal_maps or {}
-  for _, map in ipairs(M._terminal_maps[buf] or {}) do
-    pcall(vim.keymap.del, map.mode, map.lhs, { buffer = buf })
-  end
-
-  local installed = {}
-  local function map(mode, lhs, rhs, desc)
-    if lhs then
-      vim.keymap.set(mode, lhs, rhs, { buffer = buf, desc = desc })
-      installed[#installed + 1] = { mode = mode, lhs = lhs }
-    end
-  end
-
-  local keys = M.config.keymaps
-  map("t", keys.term_normal, "<C-\\><C-n>", "Terminal: exit to normal mode")
-  map("n", keys.jump_to_error, M.jump_to_error, "Jump to file location under cursor")
-  map("n", keys.next_error, M.next_error, "Next error location")
-  map("n", keys.prev_error, M.prev_error, "Previous error location")
-  map("n", keys.errors_to_quickfix, M.errors_to_quickfix, "Send errors to quickfix")
-  M._terminal_maps[buf] = installed
 end
 
 local function ensure_window_for_buf(buf)
@@ -156,8 +118,9 @@ local function find_live_terminal(var_name, expected)
 end
 
 --- Open a terminal running the configured shell in a bottom split. Window
---- options, filetype, buffer name and error-navigation keymaps are applied
---- here so they only ever affect tarminal's own terminals.
+--- options, filetype and buffer name are applied here so they only ever
+--- affect tarminal's own terminals. Setting the filetype fires the FileType
+--- event, so users can hook buffer-local keymaps on `FileType tarminal`.
 ---@param name string buffer name, e.g. "tarminal://shell"
 ---@return integer buf, integer win
 local function open_shell_term(name)
@@ -171,8 +134,6 @@ local function open_shell_term(name)
   vim.opt_local.scrolloff = 0
   vim.bo[buf].filetype = "tarminal"
   pcall(vim.api.nvim_buf_set_name, buf, name)
-
-  apply_terminal_keymaps(buf)
 
   return buf, win
 end
@@ -668,6 +629,10 @@ function M.run()
   local code_win = vim.api.nvim_get_current_win()
   local term_buf, term_win = get_or_create_shell_term()
 
+  -- The terminal rewrites screen lines in place, so highlights left over from
+  -- an earlier run can end up on this run's banner or output. Start clean.
+  vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
+
   M._run_id = (M._run_id or 0) + 1
   local banner = ("RUN[%d]"):format(M._run_id)
 
@@ -868,10 +833,13 @@ local function define_error_highlight()
   vim.api.nvim_set_hl(0, "TarminalError", { fg = diag.fg or "Red", bold = true })
 end
 
+--- tarminal never creates keymaps: opts hold settings only. Map keys
+--- yourself to :Tarminal subcommands or the functions in this module (see
+--- the README's example setup; `FileType tarminal` fires for tarminal's own
+--- terminal buffers, for buffer-local maps).
 ---@param opts tarminal.Config|nil merged over the defaults in M.config
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
-  local keys = M.config.keymaps
   local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
   define_error_highlight()
@@ -879,28 +847,6 @@ function M.setup(opts)
     group = group,
     callback = define_error_highlight,
   })
-
-  for _, map in ipairs(M._global_maps or {}) do
-    pcall(vim.keymap.del, map.mode, map.lhs)
-  end
-  M._global_maps = {}
-
-  local function map(mode, lhs, rhs, desc)
-    if lhs then
-      vim.keymap.set(mode, lhs, rhs, { desc = desc })
-      M._global_maps[#M._global_maps + 1] = { mode = mode, lhs = lhs }
-    end
-  end
-  map("n", keys.toggle, M.toggle, "Toggle shell terminal")
-  map("n", keys.run, M.run, "Run current file in terminal")
-  map("x", keys.send_selection, M.send_selection, "Send selection to REPL")
-  map("n", keys.send_cell, M.send_cell, "Send cell to REPL")
-
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == "tarminal" then
-      apply_terminal_keymaps(buf)
-    end
-  end
 end
 
 return M
