@@ -7,11 +7,12 @@ cells, and clickable error locations in terminal output.
 ## Features
 
 - **Shared shell terminal** — toggle a bottom split running your shell;
-  reused across runs.
+  its buffer is reused across runs and can be shown independently per tab.
 - **Run the current file** — saves the buffer and runs it with the runner
   configured for its filetype (`time`d), with a banner separating runs. From
-  a non-file buffer it re-runs the last run. C files are compiled with
-  `cc -Wall -Wextra -Wpedantic -O2` and then executed.
+  a non-file buffer it re-runs the last run. C files are compiled with the
+  configured `runners.c` command (`cc` by default), using
+  `-Wall -Wextra -Wpedantic -O2`, and then executed.
 - **Error navigation** — file locations in the output (`foo.c:12:5:`,
   `File "foo.py", line 12`, …) are highlighted; `<CR>` on a line jumps to
   the location (wrapped long lines are handled), `]e`/`[e` move between
@@ -54,7 +55,8 @@ the [example setup](#example-setup) below).
 - `:Tarminal run` — save and run the current file (from a non-file buffer:
   re-run the last run)
 - `:Tarminal send_cell` — send the cell around the cursor to the REPL
-- `:'<,'>Tarminal send_selection` — send the visual selection to the REPL
+- `:'<,'>Tarminal send_selection` — send the selected line range to the REPL
+  (the optional visual-mode keymap preserves exact character/block selections)
 
 In a terminal buffer:
 
@@ -108,6 +110,10 @@ require("tarminal").setup({
 })
 ```
 
+Runner and REPL tables are merged by filetype, so every default command can be
+overridden independently. For example, `runners = { c = "clang" }` uses Clang
+for C while retaining the other defaults.
+
 ## Example setup
 
 The author's opinionated setup, with all keymaps wired up:
@@ -117,13 +123,13 @@ The author's opinionated setup, with all keymaps wired up:
   "ArminIrannejad/tarminal.nvim",
   opts = {
     keymaps = {
-      -- global
+      -- global in their respective normal/visual modes
       toggle = "<leader>ts",         -- toggle the shared shell terminal
       run = "<leader>ru",            -- save and run the current file
       send_selection = "<leader>ri", -- visual mode: send selection to REPL
       send_cell = "<leader>rc",      -- send cell around cursor to REPL
+      -- buffer-local in tarminal's own terminals
       term_normal = "<Esc><Esc>",    -- terminal mode: exit to normal mode
-      -- buffer-local in tarminal's own terminals, normal mode
       jump_to_error = "<CR>",        -- jump to file location on this line
       next_error = "]e",             -- next error location
       prev_error = "[e",             -- previous error location

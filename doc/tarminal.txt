@@ -14,8 +14,8 @@ Table of Contents                                 *tarminal-table-of-contents*
 
 tarminal.nvim is a terminal runner / REPL integration:
 
-- A shared shell terminal in a bottom split, toggled on and off and reused
-  by runs.
+- A shared shell terminal buffer in a bottom split, reused by runs and shown
+  independently in each tab.
 - Run the current file with a per-filetype runner command; output is
   separated by run banners.
 - File locations in terminal output ("foo.c:12:5:", 'File "foo.py", line
@@ -46,6 +46,12 @@ Call the setup function, optionally passing overrides for the defaults: >lua
     })
 <
 
+Runner and REPL tables are merged by filetype, so each default is
+independently overridable. For example, `runners = { c = "clang" }` replaces
+the default C compiler (`cc`) without removing the other runners. C files are
+compiled with the configured command plus `-Wall -Wextra -Wpedantic -O2`, then
+executed.
+
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
 window in normal mode, "insert" moves there and enters terminal-mode.
@@ -67,7 +73,8 @@ never touches terminal buffers it did not create.
                           buffer, re-run the last run.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
-                          Send the visual selection to the REPL.
+                          Send the selected line range to the REPL. The visual
+                          mapping preserves exact character/block selections.
 :Tarminal jump_to_error   Jump to the file location on the current line
                           (in a terminal buffer).
 :Tarminal next_error      Move to the next error location.
@@ -86,13 +93,13 @@ everything wired up: >lua
 
     require("tarminal").setup({
       keymaps = {
-        -- global
+        -- global in their respective normal/visual modes
         toggle = "<leader>ts",         -- toggle the shared shell terminal
         run = "<leader>ru",            -- save and run the current file
         send_selection = "<leader>ri", -- (visual) send selection to REPL
         send_cell = "<leader>rc",      -- send cell around cursor to REPL
+        -- buffer-local in tarminal's own terminals
         term_normal = "<Esc><Esc>",    -- (terminal mode) exit to normal mode
-        -- buffer-local in tarminal's own terminals, normal mode
         jump_to_error = "<CR>",        -- jump to file location on this line
         next_error = "]e",             -- next error location
         prev_error = "[e",             -- previous error location
