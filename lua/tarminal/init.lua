@@ -311,10 +311,26 @@ local function pick_code_win()
   end
 end
 
+--- The error-navigation functions read the current buffer as terminal
+--- output (and errors_to_quickfix may close its window), so refuse to
+--- operate on anything that is not a terminal.
+---@return integer|nil term_buf
+local function current_term_buf()
+  local buf = vim.api.nvim_get_current_buf()
+  if vim.bo[buf].buftype ~= "terminal" then
+    vim.notify("Not in a terminal buffer", vim.log.levels.WARN)
+    return nil
+  end
+  return buf
+end
+
 --- Jump to the file location on the current terminal line (mapped to <CR>
 --- in terminal-buffer normal mode).
 function M.jump_to_error()
-  local term_buf = vim.api.nvim_get_current_buf()
+  local term_buf = current_term_buf()
+  if not term_buf then
+    return
+  end
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local row = vim.api.nvim_win_get_cursor(0)[1]
   local line = logical_line_at(lines, row, pty_width(term_buf))
@@ -478,7 +494,10 @@ end
 
 ---@param dir integer 1 (down) or -1 (up)
 local function goto_error(dir)
-  local term_buf = vim.api.nvim_get_current_buf()
+  local term_buf = current_term_buf()
+  if not term_buf then
+    return
+  end
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local width = pty_width(term_buf)
   local row = vim.api.nvim_win_get_cursor(0)[1]
@@ -511,7 +530,10 @@ end
 --- terminal window is closed and quickfix opened afterwards is controlled by
 --- `config.quickfix`.
 function M.errors_to_quickfix()
-  local term_buf = vim.api.nvim_get_current_buf()
+  local term_buf = current_term_buf()
+  if not term_buf then
+    return
+  end
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local width = pty_width(term_buf)
 
@@ -694,6 +716,19 @@ end
 -- REPL: send visual selection or "cell"
 -- ============================================================================
 
+--- getpos() columns point at the *first* byte of a character; extend `col`
+--- to that character's last byte (clamped to the line) so a multibyte
+--- character at the end of a selection is not cut in half.
+---@param line string
+---@param col integer 1-based byte column
+---@return integer
+local function char_end_col(line, col)
+  if col > #line then
+    return #line
+  end
+  return col + vim.str_utf_end(line, col)
+end
+
 local function get_visual_selection(visual_mode)
   visual_mode = visual_mode or vim.fn.mode()
   if visual_mode == "v" or visual_mode == "V" or visual_mode == "\22" then
@@ -717,12 +752,19 @@ local function get_visual_selection(visual_mode)
     local left, right = math.min(col_start, col_end), math.max(col_start, col_end)
     local lines = vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false)
     for i, line in ipairs(lines) do
-      lines[i] = line:sub(left, right)
+      -- the block's byte columns can land mid-character on other lines
+      local l = left
+      if l >= 1 and l <= #line then
+        l = l + vim.str_utf_start(line, l)
+      end
+      lines[i] = line:sub(l, char_end_col(line, right))
     end
     return table.concat(lines, "\n")
   end
 
-  local lines = vim.api.nvim_buf_get_text(0, line_start - 1, col_start - 1, line_end - 1, col_end, {})
+  local end_line = vim.api.nvim_buf_get_lines(0, line_end - 1, line_end, false)[1] or ""
+  local lines =
+    vim.api.nvim_buf_get_text(0, line_start - 1, col_start - 1, line_end - 1, char_end_col(end_line, col_end), {})
   return table.concat(lines, "\n")
 end
 
