@@ -358,6 +358,57 @@ describe("tarminal", function()
     assert.equals(0, #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}))
   end)
 
+  it("stops the error watcher when the run completes", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ follow_run = "none", runners = { lua = "true" } })
+
+    tarminal.run()
+    assert.is_not_nil(tarminal._watch_timer)
+    -- well under the watcher's silence timeout: only the done marker can
+    -- have stopped it this quickly
+    local stopped = vim.wait(6000, function()
+      return tarminal._watch_timer == nil
+    end, 50)
+    vim.fn.delete(file)
+    assert.is_true(stopped)
+  end)
+
+  it("highlights error locations printed by a run", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    -- a runner that prints an error location pointing at the file itself
+    tarminal.setup({
+      follow_run = "none",
+      time_runs = false,
+      runners = { lua = [[printf '%s:1:1: boom\n']] },
+    })
+
+    tarminal.run()
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+
+    local ns = get_upvalue(tarminal.run, "ns")
+    local highlighted = vim.wait(6000, function()
+      return #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}) > 0
+    end, 50)
+    local stopped = vim.wait(6000, function()
+      return tarminal._watch_timer == nil
+    end, 50)
+    vim.fn.delete(file)
+    assert.is_true(highlighted)
+    assert.is_true(stopped)
+  end)
+
   it("keeps previous runs scrollable in the terminal", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
