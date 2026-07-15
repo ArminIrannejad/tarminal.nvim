@@ -6,26 +6,83 @@ Table of Contents                                 *tarminal-table-of-contents*
 1. Introduction ................................... |tarminal-introduction|
 2. Setup .......................................... |tarminal-setup|
 3. Commands ....................................... |tarminal-commands|
+4. Mappings ....................................... |tarminal-mappings|
+5. Highlights ..................................... |tarminal-highlights|
 
 ==============================================================================
 1. Introduction                                        *tarminal-introduction*
 
-tarminal.nvim is a Neovim plugin. Describe what it does here.
+tarminal.nvim is a terminal runner / REPL integration:
+
+- A shared shell terminal in a bottom split, toggled on and off and reused
+  by runs.
+- Run the current file with a per-filetype runner command; output is
+  separated by run banners.
+- File locations in terminal output ("foo.c:12:5:", 'File "foo.py", line
+  12') are highlighted and navigable; after a run the cursor is parked on
+  the first error.
+- Send a visual selection or the cell around the cursor (delimited by
+  `cell_marker` lines) to a per-filetype REPL, using bracketed paste.
 
 ==============================================================================
 2. Setup                                                      *tarminal-setup*
 
-Call the setup function, optionally passing a table of options: >lua
+Call the setup function, optionally passing overrides for the defaults: >lua
 
     require("tarminal").setup({
-      -- your options here
+      split_height = 12,
+      shell = vim.env.SHELL or "/bin/bash",
+      follow_run = "focus",     -- "none" | "focus" | "insert"
+      follow_repl = "none",
+      park_on_error = true,
+      cell_marker = "# COMMAND ----------",
+      runners = { python = "python", c = "cc", ... },
+      repls = { python = "ipython", lua = "lua -i", ... },
+      keymaps = { ... },        -- see |tarminal-mappings|
     })
 <
+
+`follow_run` / `follow_repl` control where focus goes after sending to the
+terminal: "none" stays in the code window, "focus" moves to the terminal
+window in normal mode, "insert" moves there and enters terminal-mode.
 
 ==============================================================================
 3. Commands                                                *tarminal-commands*
 
                                                                    *:Tarminal*
-:Tarminal           Open tarminal.
+:Tarminal [toggle]        Show/hide the shared shell terminal.
+:Tarminal run             Save and run the current file. From a non-file
+                          buffer, re-run the last run.
+:Tarminal send_cell       Send the cell around the cursor to the REPL.
+:'<,'>Tarminal send_selection
+                          Send the visual selection to the REPL.
+
+==============================================================================
+4. Mappings                                                *tarminal-mappings*
+
+Global (set by setup, configurable via the `keymaps` option):
+
+  <leader>ts    Toggle the shared shell terminal
+  <leader>ru    Save and run the current file
+  <leader>ri    (visual) Send selection to REPL
+  <leader>rc    Send cell around cursor to REPL
+
+Terminal-buffer normal mode:
+
+  <CR>          Jump to the file location on the current line
+  ]e            Next error location
+  [e            Previous error location
+  <C-q>         Collect error locations into quickfix and open it
+
+Terminal-mode:
+
+  <Esc><Esc>    Exit to normal mode
+
+==============================================================================
+5. Highlights                                            *tarminal-highlights*
+
+TarminalError                                                 *TarminalError*
+    Error locations in terminal output. Defaults to bold with the
+    foreground of DiagnosticError; redefined on |ColorScheme|.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
