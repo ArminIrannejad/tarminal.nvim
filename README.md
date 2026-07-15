@@ -62,10 +62,16 @@ In a terminal buffer:
 - `:Tarminal next_error` / `:Tarminal prev_error` — move between error
   locations
 - `:Tarminal errors_to_quickfix` — collect error locations into the
-  quickfix list and open it
+  quickfix list; whether the terminal window closes and quickfix opens is
+  controlled by the `quickfix` option
 
 Errors are highlighted with the `TarminalError` highlight group (bold, in
 your colorscheme's `DiagnosticError` red).
+
+tarminal's terminals are named `tarminal://shell` and `tarminal://repl:<ft>`
+and get the `tarminal` filetype. Other terminal buffers are never touched —
+no global autocmds, no options or keymaps applied outside the plugin's own
+buffers.
 
 ## Configuration
 
@@ -94,6 +100,10 @@ require("tarminal").setup({
     haskell = "ghci",
     ocaml = "ocaml",
   },
+  quickfix = {                          -- errors_to_quickfix behavior
+    open = true,                        --   open the quickfix window after collecting
+    close_terminal = true,              --   close the terminal window after collecting
+  },
   keymaps = {},                         -- none; every action stays reachable via :Tarminal
 })
 ```
@@ -113,7 +123,7 @@ The author's opinionated setup, with all keymaps wired up:
       send_selection = "<leader>ri", -- visual mode: send selection to REPL
       send_cell = "<leader>rc",      -- send cell around cursor to REPL
       term_normal = "<Esc><Esc>",    -- terminal mode: exit to normal mode
-      -- buffer-local in terminal buffers, normal mode
+      -- buffer-local in tarminal's own terminals, normal mode
       jump_to_error = "<CR>",        -- jump to file location on this line
       next_error = "]e",             -- next error location
       prev_error = "[e",             -- previous error location
