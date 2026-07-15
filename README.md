@@ -44,6 +44,29 @@ vim.pack.add({ "https://github.com/ArminIrannejad/tarminal.nvim" })
 require("tarminal").setup()
 ```
 
+## Usage
+
+**No keymaps are created by default** — everything is available through the
+`:Tarminal` command, and you opt into keymaps via the `keymaps` option (see
+the [example setup](#example-setup) below).
+
+- `:Tarminal` / `:Tarminal toggle` — show/hide the shared shell terminal
+- `:Tarminal run` — save and run the current file (from a non-file buffer:
+  re-run the last run)
+- `:Tarminal send_cell` — send the cell around the cursor to the REPL
+- `:'<,'>Tarminal send_selection` — send the visual selection to the REPL
+
+In a terminal buffer:
+
+- `:Tarminal jump_to_error` — jump to the file location on the current line
+- `:Tarminal next_error` / `:Tarminal prev_error` — move between error
+  locations
+- `:Tarminal errors_to_quickfix` — collect error locations into the
+  quickfix list and open it
+
+Errors are highlighted with the `TarminalError` highlight group (bold, in
+your colorscheme's `DiagnosticError` red).
+
 ## Configuration
 
 Defaults:
@@ -71,41 +94,36 @@ require("tarminal").setup({
     haskell = "ghci",
     ocaml = "ocaml",
   },
-  keymaps = {
-    toggle = "<leader>ts",              -- toggle the shared shell terminal
-    run = "<leader>ru",                 -- save and run the current file
-    send_selection = "<leader>ri",      -- visual mode: send selection to REPL
-    send_cell = "<leader>rc",           -- send cell around cursor to REPL
-    -- buffer-local, in terminal normal mode:
-    jump_to_error = "<CR>",
-    next_error = "]e",
-    prev_error = "[e",
-    errors_to_quickfix = "<C-q>",
-  },
+  keymaps = {},                         -- none; every action stays reachable via :Tarminal
 })
 ```
 
-`<Esc><Esc>` in terminal-mode is mapped to exit to normal mode.
+## Example setup
 
-## Usage
+The author's opinionated setup, with all keymaps wired up:
 
-Keymaps above, or the `:Tarminal` command:
-
-- `:Tarminal` / `:Tarminal toggle` — show/hide the shared shell terminal
-- `:Tarminal run` — save and run the current file
-- `:Tarminal send_cell` — send the cell around the cursor to the REPL
-- `:'<,'>Tarminal send_selection` — send the visual selection to the REPL
-
-Errors are highlighted with the `TarminalError` highlight group (bold, in
-your colorscheme's `DiagnosticError` red).
-
-## Development
-
-```sh
-make test    # run tests (requires plenary.nvim, cloned automatically)
-make lint    # check formatting with stylua
-make fmt     # format lua sources with stylua
+```lua
+{
+  "ArminIrannejad/tarminal.nvim",
+  opts = {
+    keymaps = {
+      -- global
+      toggle = "<leader>ts",         -- toggle the shared shell terminal
+      run = "<leader>ru",            -- save and run the current file
+      send_selection = "<leader>ri", -- visual mode: send selection to REPL
+      send_cell = "<leader>rc",      -- send cell around cursor to REPL
+      term_normal = "<Esc><Esc>",    -- terminal mode: exit to normal mode
+      -- buffer-local in terminal buffers, normal mode
+      jump_to_error = "<CR>",        -- jump to file location on this line
+      next_error = "]e",             -- next error location
+      prev_error = "[e",             -- previous error location
+      errors_to_quickfix = "<C-q>",  -- errors to quickfix and open it
+    },
+  },
+}
 ```
+
+Only the keys you set are mapped, so pick the subset you want.
 
 ## License
 

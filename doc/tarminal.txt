@@ -38,7 +38,7 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       cell_marker = "# COMMAND ----------",
       runners = { python = "python", c = "cc", ... },
       repls = { python = "ipython", lua = "lua -i", ... },
-      keymaps = { ... },        -- see |tarminal-mappings|
+      keymaps = {},             -- none by default, see |tarminal-mappings|
     })
 <
 
@@ -56,27 +56,37 @@ window in normal mode, "insert" moves there and enters terminal-mode.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
                           Send the visual selection to the REPL.
+:Tarminal jump_to_error   Jump to the file location on the current line
+                          (in a terminal buffer).
+:Tarminal next_error      Move to the next error location.
+:Tarminal prev_error      Move to the previous error location.
+:Tarminal errors_to_quickfix
+                          Collect error locations into the quickfix list,
+                          close the terminal window and open quickfix.
 
 ==============================================================================
 4. Mappings                                                *tarminal-mappings*
 
-Global (set by setup, configurable via the `keymaps` option):
+No mappings are created by default. Set the ones you want in the `keymaps`
+option of |tarminal-setup|; only the keys you set are mapped. Example with
+everything wired up: >lua
 
-  <leader>ts    Toggle the shared shell terminal
-  <leader>ru    Save and run the current file
-  <leader>ri    (visual) Send selection to REPL
-  <leader>rc    Send cell around cursor to REPL
-
-Terminal-buffer normal mode:
-
-  <CR>          Jump to the file location on the current line
-  ]e            Next error location
-  [e            Previous error location
-  <C-q>         Collect error locations into quickfix and open it
-
-Terminal-mode:
-
-  <Esc><Esc>    Exit to normal mode
+    require("tarminal").setup({
+      keymaps = {
+        -- global
+        toggle = "<leader>ts",         -- toggle the shared shell terminal
+        run = "<leader>ru",            -- save and run the current file
+        send_selection = "<leader>ri", -- (visual) send selection to REPL
+        send_cell = "<leader>rc",      -- send cell around cursor to REPL
+        term_normal = "<Esc><Esc>",    -- (terminal mode) exit to normal mode
+        -- buffer-local in terminal buffers, normal mode
+        jump_to_error = "<CR>",        -- jump to file location on this line
+        next_error = "]e",             -- next error location
+        prev_error = "[e",             -- previous error location
+        errors_to_quickfix = "<C-q>",  -- errors to quickfix and open it
+      },
+    })
+<
 
 ==============================================================================
 5. Highlights                                            *tarminal-highlights*
