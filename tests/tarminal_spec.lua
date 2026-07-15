@@ -191,6 +191,62 @@ describe("tarminal", function()
     assert.equals(output:find(":12:4", 1, true) + 4, span_end)
   end)
 
+  it("parses rustc error locations", function()
+    local file = vim.fn.tempname() .. ".rs"
+    vim.fn.writefile({ "fn main() {}" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local output = " --> " .. file .. ":2:23"
+    local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(2, line)
+    assert.equals(23, col)
+    assert.equals(output:find(file, 1, true), span_start)
+  end)
+
+  it("parses OCaml error locations", function()
+    local file = vim.fn.tempname() .. ".ml"
+    vim.fn.writefile({ "let answer = 42" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local output = ('File "%s", line 1, characters 19-26:'):format(file)
+    local parsed_file, line, col = parse(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(1, line)
+    assert.is_nil(col)
+  end)
+
+  it("parses C++ compiler error locations", function()
+    local file = vim.fn.tempname() .. ".cpp"
+    vim.fn.writefile({ "int main() {}" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local output = file .. ":4:18: error: invalid conversion from 'const char*' to 'int'"
+    local parsed_file, line, col = parse(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(4, line)
+    assert.equals(18, col)
+  end)
+
+  it("parses Node.js syntax error locations without a column", function()
+    local file = vim.fn.tempname() .. ".js"
+    vim.fn.writefile({ "function broken( {}" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parsed_file, line, col = parse(file .. ":2", vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(2, line)
+    assert.is_nil(col)
+  end)
+
   it("uses display width when rebuilding wrapped terminal lines", function()
     local logical_line_at = get_upvalue(tarminal.jump_to_error, "logical_line_at")
     local logical, first, last = logical_line_at({ "éé", "tail" }, 2, 4)
