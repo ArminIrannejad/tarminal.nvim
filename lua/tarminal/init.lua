@@ -188,6 +188,40 @@ local function term_cwd(buf)
   return vim.b[buf].term_cwd
 end
 
+--- Whether the terminal's shell currently has a foreground job. While a
+--- command runs, its process group owns the pty; at the prompt the shell's
+--- own group does. Compared via /proc/<pid>/stat, whose fields after the
+--- comm are: state ppid pgrp session tty_nr tpgid ...
+---@param buf integer terminal buffer
+---@return boolean|nil busy nil when it cannot be determined
+local function term_busy(buf)
+  local job = get_job_id(buf)
+  if not job then
+    return nil
+  end
+  local ok, pid = pcall(vim.fn.jobpid, job)
+  if not ok or not pid or pid <= 0 then
+    return nil
+  end
+  local f = io.open("/proc/" .. pid .. "/stat", "r")
+  if not f then
+    return nil
+  end
+  local stat = f:read("*a") or ""
+  f:close()
+  -- the comm field may itself contain ")": parse after the last one
+  local rest = stat:match(".*%)%s+(.*)")
+  if not rest then
+    return nil
+  end
+  local fields = vim.split(rest, "%s+", { trimempty = true })
+  local pgrp, tpgid = tonumber(fields[3]), tonumber(fields[6])
+  if not pgrp or not tpgid or tpgid <= 0 then
+    return nil
+  end
+  return tpgid ~= pgrp
+end
+
 ---@param path string absolute, relative or ~ path from an error message
 ---@param term_buf integer terminal buffer the message appeared in
 ---@return string|nil # absolute path to an existing file
@@ -654,6 +688,8 @@ end
 --- appended (`python foo.py`). When the runner's program is a compiler
 --- (see `config.compilers`), the file is built first and the result is run
 --- (`cc foo.c -o foo && ./foo`); `time_runs` times the run, not the build.
+--- An extensionless file compiles to `<name>.out` — its stem *is* the
+--- filename, and `-o` would overwrite the source.
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
@@ -665,7 +701,11 @@ local function build_runner_command(ctx)
   local time = M.config.time_runs and "time " or ""
   local file = vim.fn.shellescape(ctx.file)
   if is_compiler(runner) then
-    local out = vim.fn.shellescape(ctx.stem)
+    local stem = ctx.stem
+    if stem == vim.fn.fnamemodify(ctx.file, ":t") then
+      stem = stem .. ".out"
+    end
+    local out = vim.fn.shellescape(stem)
     return ("%s %s -o %s && %s./%s"):format(runner, file, out, time, out)
   end
   return time .. runner .. " " .. file
@@ -700,6 +740,20 @@ function M.run()
   end
 
   local code_win = vim.api.nvim_get_current_win()
+
+  -- If the previous command is still in the terminal's foreground, sending
+  -- now would type into that program's stdin instead of the shell. Show the
+  -- terminal so the user can see (and interrupt) what is running. Only a
+  -- pre-existing shell can be busy; a fresh one is skipped so its startup
+  -- files can't false-positive the check.
+  local existing = find_live_terminal("is_shell", true)
+  if existing and term_busy(existing) then
+    ensure_window_for_buf(existing)
+    vim.api.nvim_set_current_win(code_win)
+    vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
+    return
+  end
+
   local term_buf, term_win = get_or_create_shell_term()
 
   -- The terminal rewrites screen lines in place, so highlights left over from
