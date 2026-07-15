@@ -40,7 +40,7 @@ local uv = vim.uv or vim.loop
 ---@field prev_error string|nil terminal buffers, normal mode: previous error location
 ---@field errors_to_quickfix string|nil terminal buffers, normal mode: errors to quickfix
 
-M.config = {
+local defaults = {
   split_height = 12,
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",
@@ -69,6 +69,8 @@ M.config = {
   keymaps = {},
 }
 
+M.config = vim.deepcopy(defaults)
+
 local function bottom_split()
   vim.cmd("botright split")
   local win = vim.api.nvim_get_current_win()
@@ -85,11 +87,37 @@ local function find_win_for_buf(buf)
   if not buf then
     return nil
   end
-  for _, w in ipairs(vim.api.nvim_list_wins()) do
+  -- A terminal buffer is shared, but its split is local to the current tab.
+  -- Looking through every tab here would make toggle() close a split in a
+  -- different tab and make run() unexpectedly switch tabs.
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if vim.api.nvim_win_get_buf(w) == buf then
       return w
     end
   end
+end
+
+local function apply_terminal_keymaps(buf)
+  M._terminal_maps = M._terminal_maps or {}
+  for _, map in ipairs(M._terminal_maps[buf] or {}) do
+    pcall(vim.keymap.del, map.mode, map.lhs, { buffer = buf })
+  end
+
+  local installed = {}
+  local function map(mode, lhs, rhs, desc)
+    if lhs then
+      vim.keymap.set(mode, lhs, rhs, { buffer = buf, desc = desc })
+      installed[#installed + 1] = { mode = mode, lhs = lhs }
+    end
+  end
+
+  local keys = M.config.keymaps
+  map("t", keys.term_normal, "<C-\\><C-n>", "Terminal: exit to normal mode")
+  map("n", keys.jump_to_error, M.jump_to_error, "Jump to file location under cursor")
+  map("n", keys.next_error, M.next_error, "Next error location")
+  map("n", keys.prev_error, M.prev_error, "Previous error location")
+  map("n", keys.errors_to_quickfix, M.errors_to_quickfix, "Send errors to quickfix")
+  M._terminal_maps[buf] = installed
 end
 
 local function ensure_window_for_buf(buf)
@@ -144,16 +172,7 @@ local function open_shell_term(name)
   vim.bo[buf].filetype = "tarminal"
   pcall(vim.api.nvim_buf_set_name, buf, name)
 
-  local keys = M.config.keymaps
-  local function map(lhs, rhs, desc)
-    if lhs then
-      vim.keymap.set("n", lhs, rhs, { buffer = buf, desc = desc })
-    end
-  end
-  map(keys.jump_to_error, M.jump_to_error, "Jump to file location under cursor")
-  map(keys.next_error, M.next_error, "Next error location")
-  map(keys.prev_error, M.prev_error, "Previous error location")
-  map(keys.errors_to_quickfix, M.errors_to_quickfix, "Send errors to quickfix")
+  apply_terminal_keymaps(buf)
 
   return buf, win
 end
@@ -247,13 +266,24 @@ local function parse_error_line(line, term_buf)
   local init = 1
   while true do
     local f, l, c
-    s, e, f, l, c = line:find("([^%s:'\"()]+):(%d+):?(%d*)", init)
+    s, e, f, l, c = line:find("([^:'\"()]+):(%d+):?(%d*)", init)
     if not s then
       break
     end
-    local path = resolve_file(f, term_buf)
+    local candidate = vim.trim(f)
+    local offset = f:find(candidate, 1, true) - 1
+    local path = resolve_file(candidate, term_buf)
+    if not path then
+      -- Rust and a few other tools prefix locations with an arrow.
+      local without_arrow = candidate:gsub("^.*%-%->%s*", "")
+      if without_arrow ~= candidate then
+        offset = offset + candidate:find(without_arrow, 1, true) - 1
+        candidate = without_arrow
+        path = resolve_file(candidate, term_buf)
+      end
+    end
     if path then
-      return path, tonumber(l), tonumber(c), s, e
+      return path, tonumber(l), tonumber(c), s + offset, e
     end
     init = e + 1
   end
@@ -275,10 +305,10 @@ end
 ---@return string logical, integer first_row, integer last_row
 local function logical_line_at(lines, row, width)
   local first, last = row, row
-  while first > 1 and #lines[first - 1] == width do
+  while first > 1 and vim.fn.strdisplaywidth(lines[first - 1]) == width do
     first = first - 1
   end
-  while last < #lines and #lines[last] == width do
+  while last < #lines and vim.fn.strdisplaywidth(lines[last]) == width do
     last = last + 1
   end
   return table.concat(lines, "", first, last), first, last
@@ -576,17 +606,48 @@ function M.toggle()
   end
 end
 
+---@class tarminal.RunContext
+---@field file string
+---@field stem string
+---@field dir string
+---@field ft string
+
+---@param ctx tarminal.RunContext
+---@return string|nil
+local function build_runner_command(ctx)
+  local file_escaped = vim.fn.shellescape(ctx.file)
+  local stem_escaped = vim.fn.shellescape(ctx.stem)
+  local exe = M.config.runners[ctx.ft]
+  if not exe then
+    return
+  end
+
+  if ctx.ft == "c" then
+    return table.concat({
+      exe,
+      "-Wall -Wextra -Wpedantic -O2",
+      file_escaped,
+      "-o",
+      stem_escaped,
+      "&&",
+      "time",
+      "./" .. stem_escaped,
+    }, " ")
+  end
+  return "time " .. exe .. " " .. file_escaped
+end
+
 --- Save and run the current file in the shared shell terminal. When invoked
 --- from the terminal itself (or any non-file buffer), re-run the last run.
 function M.run()
   local ctx
-  if vim.bo.buftype == "" then
-    vim.cmd("w")
-    local file = vim.fn.expand("%:p")
+  local current_file = vim.fn.expand("%:p")
+  if vim.bo.buftype == "" and current_file ~= "" then
+    vim.cmd("write")
     ctx = {
-      file = file,
+      file = current_file,
       stem = vim.fn.expand("%:t:r"),
-      dir = vim.fn.fnamemodify(file, ":h"),
+      dir = vim.fn.fnamemodify(current_file, ":h"),
       ft = vim.bo.filetype,
     }
     M._last_run = ctx
@@ -598,38 +659,10 @@ function M.run()
     end
   end
 
-  local dir = ctx.dir
-  local file_escaped = vim.fn.shellescape(ctx.file)
-  local stem_escaped = vim.fn.shellescape(ctx.stem)
-
-  local ft = ctx.ft
-  local exe = M.config.runners[ft]
-  if not exe then
-    vim.notify("No runner configured for filetype: " .. ft, vim.log.levels.WARN)
+  local runner_cmd = build_runner_command(ctx)
+  if not runner_cmd then
+    vim.notify("No runner configured for filetype: " .. ctx.ft, vim.log.levels.WARN)
     return
-  end
-
-  local build_cmd = {
-    c = function()
-      return table.concat({
-        "cc",
-        "-Wall -Wextra -Wpedantic -O2",
-        file_escaped,
-        "-o",
-        stem_escaped,
-        "&&",
-        "time",
-        "./" .. stem_escaped,
-      }, " ")
-    end,
-  }
-
-  local cmd_builder = build_cmd[ft]
-  local runner_cmd
-  if cmd_builder then
-    runner_cmd = "\n" .. cmd_builder()
-  else
-    runner_cmd = "\n" .. "time " .. exe .. " " .. file_escaped
   end
 
   local code_win = vim.api.nvim_get_current_win()
@@ -643,17 +676,17 @@ function M.run()
   -- window view to this run's banner so it still starts at the top.
   local scroll = vim.api.nvim_win_get_height(term_win)
   local cmd = table.concat({
-    "cd " .. vim.fn.shellescape(dir),
+    "cd " .. vim.fn.shellescape(ctx.dir),
     ("printf '\\033[%dS\\033[H'"):format(scroll),
     "printf '\\n===== " .. banner .. ": %s =====\\n' \"$(date '+%H:%M:%S')\"",
-    runner_cmd,
+    "\n" .. runner_cmd,
   }, " && ") .. "\n"
 
   if M.config.park_on_error then
     watch_run_errors(term_buf, banner)
   end
   term_send(term_buf, cmd)
-  vim.b[term_buf].term_cwd = dir
+  vim.b[term_buf].term_cwd = ctx.dir
   vim.b[term_buf].run_banner = banner
 
   focus_after_send(term_win, code_win, M.config.follow_run)
@@ -663,9 +696,9 @@ end
 -- REPL: send visual selection or "cell"
 -- ============================================================================
 
-local function get_visual_selection()
-  local mode = vim.fn.mode()
-  if mode == "v" or mode == "V" then
+local function get_visual_selection(visual_mode)
+  visual_mode = visual_mode or vim.fn.mode()
+  if visual_mode == "v" or visual_mode == "V" or visual_mode == "\22" then
     vim.cmd("normal! \27")
   end
 
@@ -678,11 +711,28 @@ local function get_visual_selection()
     line_start, line_end, col_start, col_end = line_end, line_start, col_end, col_start
   end
 
-  local lines = vim.fn.getline(line_start, line_end)
-  lines[1] = string.sub(lines[1], col_start, #lines[1])
-  lines[#lines] = string.sub(lines[#lines], 1, col_end)
+  if visual_mode == "V" then
+    return table.concat(vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false), "\n")
+  end
 
+  if visual_mode == "\22" then
+    local left, right = math.min(col_start, col_end), math.max(col_start, col_end)
+    local lines = vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false)
+    for i, line in ipairs(lines) do
+      lines[i] = line:sub(left, right)
+    end
+    return table.concat(lines, "\n")
+  end
+
+  local lines = vim.api.nvim_buf_get_text(0, line_start - 1, col_start - 1, line_end - 1, col_end, {})
   return table.concat(lines, "\n")
+end
+
+---@param line1 integer
+---@param line2 integer
+---@return string
+local function get_line_range(line1, line2)
+  return table.concat(vim.api.nvim_buf_get_lines(0, line1 - 1, line2, false), "\n")
 end
 
 ---@param ft string filetype whose REPL to reuse or start
@@ -722,10 +772,17 @@ local function send_to_repl(repl_buf, text)
   term_send(repl_buf, start_bp .. text .. end_bp .. "\n")
 end
 
---- Send the visual selection to the filetype's REPL.
-function M.send_selection()
+--- Send the visual selection, or an explicit command range, to the
+--- filetype's REPL.
+---@param command_opts table|nil :Tarminal command callback data
+function M.send_selection(command_opts)
   local code_win = vim.api.nvim_get_current_win()
-  local text = get_visual_selection()
+  local text
+  if command_opts and command_opts.range and command_opts.range > 0 then
+    text = get_line_range(command_opts.line1, command_opts.line2)
+  else
+    text = get_visual_selection()
+  end
   local repl_buf, repl_win = get_or_start_repl(vim.bo.filetype)
   if not repl_buf then
     return
@@ -740,12 +797,13 @@ end
 -- ============================================================================
 
 local function line_is_marker(s)
-  return s:find(M.config.cell_marker, 1, true) ~= nil
+  return M.config.cell_marker ~= "" and vim.trim(s) == M.config.cell_marker
 end
 
 local function get_current_cell_range()
   local total = vim.api.nvim_buf_line_count(0)
   local cur = vim.fn.line(".")
+  local current_is_marker = line_is_marker(vim.api.nvim_get_current_line())
   local up = cur
 
   while up >= 1 do
@@ -757,7 +815,7 @@ local function get_current_cell_range()
   end
 
   local start_line = (up >= 1) and (up + 1) or 1
-  local down = cur
+  local down = current_is_marker and (cur + 1) or cur
 
   while down <= total do
     local l = vim.api.nvim_buf_get_lines(0, down - 1, down, false)[1]
@@ -773,7 +831,13 @@ end
 
 local function get_current_cell_text()
   local s, e = get_current_cell_range()
+  if s > e then
+    return nil
+  end
   local lines = vim.api.nvim_buf_get_lines(0, s - 1, e, false)
+  if #lines == 0 then
+    return nil
+  end
   return table.concat(lines, "\n") .. "\n"
 end
 
@@ -781,6 +845,10 @@ end
 function M.send_cell()
   local code_win = vim.api.nvim_get_current_win()
   local text = get_current_cell_text()
+  if not text then
+    vim.notify("No cell content after this marker", vim.log.levels.WARN)
+    return
+  end
   local repl_buf, repl_win = get_or_start_repl(vim.bo.filetype)
   if not repl_buf then
     return
@@ -802,7 +870,7 @@ end
 
 ---@param opts tarminal.Config|nil merged over the defaults in M.config
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+  M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
   local keys = M.config.keymaps
   local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
@@ -812,16 +880,27 @@ function M.setup(opts)
     callback = define_error_highlight,
   })
 
+  for _, map in ipairs(M._global_maps or {}) do
+    pcall(vim.keymap.del, map.mode, map.lhs)
+  end
+  M._global_maps = {}
+
   local function map(mode, lhs, rhs, desc)
     if lhs then
       vim.keymap.set(mode, lhs, rhs, { desc = desc })
+      M._global_maps[#M._global_maps + 1] = { mode = mode, lhs = lhs }
     end
   end
-  map("t", keys.term_normal, "<C-\\><C-n>", "Terminal: exit to normal mode")
   map("n", keys.toggle, M.toggle, "Toggle shell terminal")
   map("n", keys.run, M.run, "Run current file in terminal")
   map("x", keys.send_selection, M.send_selection, "Send selection to REPL")
   map("n", keys.send_cell, M.send_cell, "Send cell to REPL")
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == "tarminal" then
+      apply_terminal_keymaps(buf)
+    end
+  end
 end
 
 return M

@@ -31,7 +31,7 @@ vim.api.nvim_create_user_command("Tarminal", function(cmd)
     vim.notify("Tarminal: unknown subcommand: " .. sub, vim.log.levels.ERROR)
     return
   end
-  require("tarminal")[sub]()
+  require("tarminal")[sub](cmd)
 end, {
   nargs = "?",
   range = true,
