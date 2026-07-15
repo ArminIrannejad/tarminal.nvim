@@ -132,6 +132,22 @@ describe("tarminal", function()
     assert.equals("cde", get_selection("v"))
   end)
 
+  it("keeps a trailing multibyte character in a charwise selection", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcé" })
+    vim.fn.setpos("'<", { 0, 1, 1, 0 })
+    vim.fn.setpos("'>", { 0, 1, 4, 0 }) -- é occupies bytes 4-5
+    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    assert.equals("abcé", get_selection("v"))
+  end)
+
+  it("keeps multibyte characters inside a blockwise selection", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "xéy", "abc" })
+    vim.fn.setpos("'<", { 0, 1, 2, 0 })
+    vim.fn.setpos("'>", { 0, 2, 2, 0 })
+    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    assert.equals("é\nb", get_selection("\22"))
+  end)
+
   it("extracts an explicit line range", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
     local get_range = get_upvalue(tarminal.send_selection, "get_line_range")
@@ -378,6 +394,29 @@ describe("tarminal", function()
     end, 50))
     -- the first run's banner must survive the second run's screen push
     assert.is_true(has_banner(first))
+    vim.fn.delete(file)
+  end)
+
+  it("refuses error navigation outside a terminal buffer", function()
+    vim.fn.setqflist({})
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int x;" }, file)
+    -- a line that would parse as an error location if this were a terminal
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { file .. ":1:1: fake error" })
+    vim.cmd("split")
+    local win = vim.api.nvim_get_current_win()
+
+    tarminal.errors_to_quickfix()
+    -- the code window must not be mistaken for the terminal and closed
+    assert.is_true(vim.api.nvim_win_is_valid(win))
+    assert.equals(0, #vim.fn.getqflist())
+
+    tarminal.jump_to_error()
+    tarminal.next_error()
+    tarminal.prev_error()
+    assert.equals(win, vim.api.nvim_get_current_win())
+
+    vim.cmd("only")
     vim.fn.delete(file)
   end)
 
