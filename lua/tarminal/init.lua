@@ -17,15 +17,11 @@ local uv = vim.uv or vim.loop
 ---@field follow_repl tarminal.Follow
 ---@field park_on_error boolean after a run, highlight error locations and park the cursor on the first one
 ---@field cell_marker string line that delimits REPL cells
----@field time_runs boolean wrap runs in `time` (for compiled runners: the produced binary)
----@field runners table<string, tarminal.Runner> filetype -> how to run a file
+---@field time_runs boolean `time` the run (for compiled files: the produced binary)
+---@field runners table<string, string> filetype -> command the file is run with; compilers are recognized by name
+---@field compilers string[] program names treated as compilers: the file is built with `-o` first, then the binary is run
 ---@field repls table<string, string> filetype -> interactive REPL command
 ---@field quickfix tarminal.Quickfix
-
---- How a file of some filetype is run. A plain string runs the file directly
---- (`<cmd> <file>`); a table with `compile = true` builds it first and runs
---- the result (`<cmd> <file> -o <stem> && ./<stem>`). Flags go in `cmd`.
----@alias tarminal.Runner string|{ cmd: string, compile: boolean? }
 
 --- What errors_to_quickfix does besides populating the quickfix list.
 ---@class tarminal.Quickfix
@@ -47,8 +43,9 @@ local defaults = {
     go = "go run",
     haskell = "runghc",
     ocaml = "ocaml",
-    c = { cmd = "cc", compile = true },
+    c = "cc",
   },
+  compilers = { "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc", "gfortran", "rustc", "ghc" },
   repls = {
     python = "ipython",
     lua = "lua -i",
@@ -580,6 +577,27 @@ end
 ---@field dir string
 ---@field ft string
 
+--- Whether the runner's program is a known compiler. Matched against the
+--- first word, ignoring a leading path and a trailing version suffix, so
+--- "/usr/bin/clang-17 -Wall" matches "clang".
+---@param runner string
+---@return boolean
+local function is_compiler(runner)
+  local exe = runner:match("%S+") or runner
+  exe = exe:match("[^/]+$") or exe
+  local unversioned = exe:match("^(.-)%-%d+$")
+  for _, name in ipairs(M.config.compilers) do
+    if exe == name or unversioned == name then
+      return true
+    end
+  end
+  return false
+end
+
+--- Build the shell command that runs a file: the runner with the file
+--- appended (`python foo.py`). When the runner's program is a compiler
+--- (see `config.compilers`), the file is built first and the result is run
+--- (`cc foo.c -o foo && ./foo`); `time_runs` times the run, not the build.
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
@@ -587,17 +605,14 @@ local function build_runner_command(ctx)
   if not runner then
     return
   end
-  if type(runner) == "string" then
-    runner = { cmd = runner }
-  end
 
   local time = M.config.time_runs and "time " or ""
   local file = vim.fn.shellescape(ctx.file)
-  if runner.compile then
+  if is_compiler(runner) then
     local out = vim.fn.shellescape(ctx.stem)
-    return ("%s %s -o %s && %s./%s"):format(runner.cmd, file, out, time, out)
+    return ("%s %s -o %s && %s./%s"):format(runner, file, out, time, out)
   end
-  return time .. runner.cmd .. " " .. file
+  return time .. runner .. " " .. file
 end
 
 --- Save and run the current file in the shared shell terminal. When invoked
