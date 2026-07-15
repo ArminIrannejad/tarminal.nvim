@@ -1,0 +1,11 @@
+describe("tarminal", function()
+  it("can be required", function()
+    require("tarminal")
+  end)
+
+  it("setup merges user options over defaults", function()
+    local tarminal = require("tarminal")
+    tarminal.setup({ custom = true })
+    assert.is_true(tarminal.options.custom)
+  end)
+end)
