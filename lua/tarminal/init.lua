@@ -636,13 +636,14 @@ function M.run()
   M._run_id = (M._run_id or 0) + 1
   local banner = ("RUN[%d]"):format(M._run_id)
 
-  -- Push the whole screen into scrollback instead of erasing it (what
-  -- `clear` did), so previous runs stay scrollable; the watcher pins the
-  -- window view to this run's banner so it still starts at the top.
+  -- Feed the screen into scrollback with newlines before homing the cursor:
+  -- an ANSI scroll (or `clear`) erases the scrolled-out lines, newline-driven
+  -- scrolling preserves them, so previous runs stay scrollable. The watcher
+  -- pins the window view to this run's banner so it still starts at the top.
   local scroll = vim.api.nvim_win_get_height(term_win)
   local cmd = table.concat({
     "cd " .. vim.fn.shellescape(ctx.dir),
-    ("printf '\\033[%dS\\033[H'"):format(scroll),
+    "printf '" .. ("\\n"):rep(scroll) .. "\\033[H'",
     "printf '\\n===== " .. banner .. ": %s =====\\n' \"$(date '+%H:%M:%S')\"",
     "\n" .. runner_cmd,
   }, " && ") .. "\n"
