@@ -66,8 +66,8 @@ describe("tarminal", function()
     assert.equals(12, tarminal.config.split_height)
   end)
 
-  it("compiles with the configured command, keeping compile from the default", function()
-    tarminal.setup({ runners = { c = { cmd = "clang -Wall" } } })
+  it("automatically compiles and runs compiler-based runners", function()
+    tarminal.setup({ runners = { c = "clang -Wpedantic -Wall" } })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local command = build({
       file = "/tmp/example.c",
@@ -75,10 +75,10 @@ describe("tarminal", function()
       dir = "/tmp",
       ft = "c",
     })
-    assert.equals("clang -Wall '/tmp/example.c' -o 'example' && time ./'example'", command)
+    assert.equals("clang -Wpedantic -Wall '/tmp/example.c' -o 'example' && time ./'example'", command)
   end)
 
-  it("runs interpreted files directly, timed by default", function()
+  it("appends the file to interpreted runners, timed by default", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
     assert.equals("time python '/tmp/example.py'", build(ctx))
@@ -87,16 +87,21 @@ describe("tarminal", function()
     assert.equals("python '/tmp/example.py'", build(ctx))
   end)
 
-  it("omits time from compiled runs when time_runs is off", function()
-    tarminal.setup({ time_runs = false })
+  it("times only the last command of a && chain", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
-    local command = build({
-      file = "/tmp/example.c",
-      stem = "example",
-      dir = "/tmp",
-      ft = "c",
-    })
-    assert.equals("cc '/tmp/example.c' -o 'example' && ./'example'", command)
+    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
+    assert.equals("cc '/tmp/example.c' -o 'example' && time ./'example'", build(ctx))
+
+    tarminal.setup({ time_runs = false })
+    assert.equals("cc '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
+  end)
+
+  it("recognizes compiler paths and versioned compiler names", function()
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
+
+    tarminal.setup({ runners = { c = "/usr/bin/clang-17 -Wall" } })
+    assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && time ./'example'", build(ctx))
   end)
 
   it("runs a named file with its configured runner", function()
