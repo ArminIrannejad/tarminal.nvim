@@ -9,10 +9,10 @@ cells, and clickable error locations in terminal output.
 - **Shared shell terminal** — toggle a bottom split running your shell;
   its buffer is reused across runs and can be shown independently per tab.
 - **Run the current file** — saves the buffer and runs it with the runner
-  configured for its filetype (`time`d), with a banner separating runs. From
-  a non-file buffer it re-runs the last run. C files are compiled with the
-  configured `runners.c` command (`cc` by default), using
-  `-Wall -Wextra -Wpedantic -O2`, and then executed.
+  configured for its filetype (wrapped in `time` unless disabled), with a
+  banner separating runs. From a non-file buffer it re-runs the last run.
+  Compiled runners (C by default) build the file and run the resulting
+  binary.
 - **Error navigation** — file locations in the output (`foo.c:12:5:`,
   `File "foo.py", line 12`, …) are highlighted; jump to the location under
   the cursor (wrapped long lines are handled), move between locations, or
@@ -88,14 +88,15 @@ require("tarminal").setup({
   follow_repl = "none",                 -- focus after sending to a REPL
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   cell_marker = "# COMMAND ----------", -- line that delimits REPL cells
-  runners = {                           -- filetype -> command that runs a file
-    python = "python",
+  time_runs = true,                     -- wrap runs in `time` (compiled runners: the binary)
+  runners = {                           -- filetype -> how to run a file
+    python = "python",                  --   string: run the file, `python foo.py`
     sh = "bash",
     lua = "lua",
     go = "go run",
     haskell = "runghc",
     ocaml = "ocaml",
-    c = "cc",
+    c = { cmd = "cc", compile = true }, --   compile: `cc foo.c -o foo && ./foo`
   },
   repls = {                             -- filetype -> interactive REPL command
     python = "ipython",
@@ -111,8 +112,11 @@ require("tarminal").setup({
 ```
 
 Runner and REPL tables are merged by filetype, so every default command can be
-overridden independently — `runners = { c = "clang" }` uses Clang for C while
-retaining all the other defaults; the same goes for `repls`.
+overridden independently; the same goes for `repls`. A string runner runs the
+file directly; a table with `compile = true` builds it first and runs the
+result. Flags belong in the command itself, and since the merge is per-field,
+`runners = { c = { cmd = "clang -Wall -Wextra -O2" } }` changes only the
+compile command while keeping `compile = true` from the default.
 
 Set `quickfix = { open = false, close_terminal = false }` if you want
 `errors_to_quickfix` to only populate the quickfix list, leaving the terminal
@@ -127,7 +131,11 @@ filetype (which fires for every terminal the plugin creates):
 ```lua
 {
   "ArminIrannejad/tarminal.nvim",
-  opts = {},
+  opts = {
+    runners = {
+      c = { cmd = "cc -Wall -Wextra -Wpedantic -O2" },
+    },
+  },
   keys = {
     { "<leader>ts", function() require("tarminal").toggle() end, desc = "Toggle shell terminal" },
     { "<leader>ru", function() require("tarminal").run() end, desc = "Run current file in terminal" },
