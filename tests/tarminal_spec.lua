@@ -96,6 +96,12 @@ describe("tarminal", function()
     assert.equals("cc '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
+  it("does not overwrite an extensionless source file when compiling", function()
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local command = build({ file = "/tmp/prog", stem = "prog", dir = "/tmp", ft = "c" })
+    assert.equals("cc '/tmp/prog' -o 'prog.out' && time ./'prog.out'", command)
+  end)
+
   it("recognizes compiler paths and versioned compiler names", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
@@ -356,6 +362,38 @@ describe("tarminal", function()
     tarminal.run()
     vim.fn.delete(file)
     assert.equals(0, #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}))
+  end)
+
+  it("refuses to run while the terminal is busy with a command", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    -- a runner that keeps the shell's foreground occupied
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ "sleep 10" }, script)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "sh " .. script } })
+
+    tarminal.run()
+    local first_id = tarminal._run_id
+
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+    local term_busy = get_upvalue(tarminal.run, "term_busy")
+    local busy = vim.wait(4000, function()
+      return term_busy(term_buf) == true
+    end, 50)
+    assert.is_true(busy)
+
+    tarminal.run()
+    assert.equals(first_id, tarminal._run_id)
+    vim.fn.delete(file)
+    vim.fn.delete(script)
   end)
 
   it("stops the error watcher when the run completes", function()
