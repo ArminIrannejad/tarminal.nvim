@@ -12,16 +12,26 @@ if vim.fn.has("nvim-0.9") == 0 then
   return
 end
 
-local subcommands = { "toggle", "run", "send_cell", "send_selection" }
+-- Every plugin action, so users can drive tarminal entirely through
+-- :Tarminal without any keymaps configured.
+local subcommands = {
+  "toggle",
+  "run",
+  "send_cell",
+  "send_selection",
+  "jump_to_error",
+  "next_error",
+  "prev_error",
+  "errors_to_quickfix",
+}
 
 vim.api.nvim_create_user_command("Tarminal", function(cmd)
   local sub = cmd.fargs[1] or "toggle"
-  local tarminal = require("tarminal")
   if not vim.tbl_contains(subcommands, sub) then
     vim.notify("Tarminal: unknown subcommand: " .. sub, vim.log.levels.ERROR)
     return
   end
-  tarminal[sub]()
+  require("tarminal")[sub]()
 end, {
   nargs = "?",
   range = true,
@@ -30,5 +40,5 @@ end, {
       return vim.startswith(s, arglead)
     end, subcommands)
   end,
-  desc = "tarminal.nvim: toggle (default) | run | send_cell | send_selection",
+  desc = "Open Tarminal (default: toggle) — :Tarminal <Tab> for all actions",
 })
