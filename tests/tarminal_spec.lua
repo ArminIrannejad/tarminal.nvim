@@ -48,6 +48,7 @@ describe("tarminal", function()
     assert.equals("cargo run", tarminal.config.runners.rust)
     -- untouched defaults survive the merge
     assert.equals("python", tarminal.config.runners.python)
+    assert.equals("node", tarminal.config.runners.javascript)
     assert.equals("ipython", tarminal.config.repls.python)
   end)
 
@@ -364,12 +365,62 @@ describe("tarminal", function()
     assert.equals(0, #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}))
   end)
 
+  it("aborts the run when the file cannot be written", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    -- unsaved edits in a readonly buffer: update fails, the run must not
+    -- silently execute the stale on-disk version
+    vim.api.nvim_buf_set_lines(0, -1, -1, false, { "print('edited')" })
+    vim.bo.readonly = true
+    local before = tarminal._run_id
+
+    tarminal.run()
+
+    vim.bo.readonly = false
+    vim.fn.delete(file)
+    assert.equals(before, tarminal._run_id)
+  end)
+
+  it("saves the edited source before a re-run from the terminal", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    tarminal.run()
+    local src = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(src, -1, -1, false, { "print('edited')" })
+    assert.is_true(vim.bo[src].modified)
+
+    -- re-run from inside the terminal window
+    local term_win
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      if vim.bo[vim.api.nvim_win_get_buf(win)].filetype == "tarminal" then
+        term_win = win
+      end
+    end
+    assert.is_not_nil(term_win)
+    vim.api.nvim_set_current_win(term_win)
+    tarminal.run()
+
+    local saved = not vim.bo[src].modified
+    vim.fn.delete(file)
+    assert.is_true(saved)
+  end)
+
   it("refuses to run while the terminal is busy with a command", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
-    -- a runner that keeps the shell's foreground occupied
+    -- a runner that keeps the shell's foreground occupied (generously long:
+    -- it must still be running when the second run() is attempted, even on
+    -- a slow CI runner; after_each kills the shell well before it expires)
     local script = vim.fn.tempname() .. ".sh"
-    vim.fn.writefile({ "sleep 10" }, script)
+    vim.fn.writefile({ "sleep 30" }, script)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
     tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "sh " .. script } })
@@ -385,7 +436,7 @@ describe("tarminal", function()
     end
     assert.is_not_nil(term_buf)
     local term_busy = get_upvalue(tarminal.run, "term_busy")
-    local busy = vim.wait(4000, function()
+    local busy = vim.wait(8000, function()
       return term_busy(term_buf) == true
     end, 50)
     assert.is_true(busy)
