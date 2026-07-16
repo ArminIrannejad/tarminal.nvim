@@ -17,7 +17,7 @@ local uv = vim.uv or vim.loop
 ---@field follow_repl tarminal.Follow
 ---@field park_on_error boolean after a run, highlight error locations and park the cursor on the first one
 ---@field cell_marker string line that delimits REPL cells
----@field time_runs boolean `time` the run (for compiled files: the produced binary)
+---@field time_runs boolean `time` the run when a `time` binary is installed (for compiled files: the produced binary)
 ---@field runners table<string, string> filetype -> command the file is run with; compilers are recognized by name
 ---@field compilers string[] program names treated as compilers: the file is built with `-o` first, then the binary is run
 ---@field repls table<string, string> filetype -> interactive REPL command
@@ -731,8 +731,10 @@ end
 --- appended (`python foo.py`). When the runner's program is a compiler
 --- (see `config.compilers`), the file is built first and the result is run
 --- (`cc foo.c -o foo && ./foo`); `time_runs` times the run, not the build.
---- An extensionless file compiles to `<name>.out` — its stem *is* the
---- filename, and `-o` would overwrite the source.
+--- Timing requires a `time` binary — the shell keyword alone isn't relied
+--- on, so the command works in any POSIX shell; without the binary the
+--- prefix is skipped. An extensionless file compiles to `<name>.out` — its
+--- stem *is* the filename, and `-o` would overwrite the source.
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
@@ -741,7 +743,7 @@ local function build_runner_command(ctx)
     return
   end
 
-  local time = M.config.time_runs and "time " or ""
+  local time = M.config.time_runs and vim.fn.executable("time") == 1 and "time " or ""
   local file = vim.fn.shellescape(ctx.file)
   if is_compiler(runner) then
     local stem = ctx.stem
