@@ -435,6 +435,12 @@ describe("tarminal", function()
   end)
 
   it("refuses to run while the terminal is busy with a command", function()
+    -- foreground-job detection needs a shell with job control (a plain
+    -- POSIX sh runs children in its own process group, where the busy
+    -- guard degrades to a no-op) — pin bash rather than inherit $SHELL
+    if vim.fn.executable("bash") == 0 then
+      return
+    end
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
     -- a runner that keeps the shell's foreground occupied (generously long:
@@ -444,7 +450,12 @@ describe("tarminal", function()
     vim.fn.writefile({ "sleep 30" }, script)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "sh " .. script } })
+    tarminal.setup({
+      park_on_error = false,
+      follow_run = "none",
+      shell = "bash",
+      runners = { lua = "sh " .. script },
+    })
 
     tarminal.run()
     local first_id = tarminal._run_id

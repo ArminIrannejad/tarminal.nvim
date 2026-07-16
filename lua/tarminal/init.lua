@@ -134,13 +134,16 @@ local function open_shell_term(name)
   local win = bottom_split()
   -- Spawn in a fresh buffer via jobstart/termopen instead of :terminal,
   -- whose Ex parsing would expand % and # and split the command on |.
-  -- Like :terminal, the string is run through 'shell', so a command with
-  -- arguments ("sh script") keeps working.
+  -- The command is passed as a list, so the shell is spawned *directly*:
+  -- a string would be wrapped in ['shell' -c "cmd"], and shells that fork
+  -- instead of exec-ing there (dash) would make jobpid point at the
+  -- wrapper — breaking the foreground-job check and /proc cwd resolution.
   vim.cmd("enew")
+  local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
   if vim.fn.has("nvim-0.11") == 1 then
-    vim.fn.jobstart(M.config.shell, { term = true })
+    vim.fn.jobstart(cmd, { term = true })
   else
-    vim.fn.termopen(M.config.shell)
+    vim.fn.termopen(cmd)
   end
   local buf = vim.api.nvim_get_current_buf()
   vim.b[buf].term_cwd = vim.fn.getcwd()
@@ -211,6 +214,11 @@ end
 --- command runs, its process group owns the pty; at the prompt the shell's
 --- own group does. Compared via /proc/<pid>/stat, whose fields after the
 --- comm are: state ppid pgrp session tty_nr tpgid ...
+---
+--- Some shells (dash) never take the foreground back at the prompt: tpgid
+--- keeps pointing at the exited child's process group. A foreground group
+--- with no living processes is therefore idle, not busy — probed with
+--- kill(-pgid, 0).
 ---@param buf integer terminal buffer
 ---@return boolean|nil busy nil when it cannot be determined
 local function term_busy(buf)
@@ -238,7 +246,10 @@ local function term_busy(buf)
   if not pgrp or not tpgid or tpgid <= 0 then
     return nil
   end
-  return tpgid ~= pgrp
+  if tpgid == pgrp then
+    return false
+  end
+  return uv.kill(-tpgid, 0) == 0
 end
 
 ---@param path string absolute, relative or ~ path from an error message
