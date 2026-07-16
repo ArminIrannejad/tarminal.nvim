@@ -40,10 +40,13 @@ local defaults = {
     python = "python",
     sh = "bash",
     lua = "lua",
+    javascript = "node",
     go = "go run",
     haskell = "runghc",
     ocaml = "ocaml",
     c = "cc",
+    rust = "rustc",
+    fortran = "gfortran",
   },
   compilers = { "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc", "gfortran", "rustc", "ghc" },
   repls = {
@@ -129,7 +132,16 @@ end
 ---@return integer buf, integer win
 local function open_shell_term(name)
   local win = bottom_split()
-  vim.cmd("term " .. M.config.shell)
+  -- Spawn in a fresh buffer via jobstart/termopen instead of :terminal,
+  -- whose Ex parsing would expand % and # and split the command on |.
+  -- Like :terminal, the string is run through 'shell', so a command with
+  -- arguments ("sh script") keeps working.
+  vim.cmd("enew")
+  if vim.fn.has("nvim-0.11") == 1 then
+    vim.fn.jobstart(M.config.shell, { term = true })
+  else
+    vim.fn.termopen(M.config.shell)
+  end
   local buf = vim.api.nvim_get_current_buf()
   vim.b[buf].term_cwd = vim.fn.getcwd()
 
@@ -157,11 +169,18 @@ end
 ---@param follow tarminal.Follow
 local function focus_after_send(term_win, code_win, follow)
   M._last_code_win = code_win
-  vim.api.nvim_set_current_win(term_win)
-  vim.cmd("normal! G")
+  -- scroll without entering the window: with follow = "none", entering and
+  -- leaving would fire WinEnter/BufEnter autocmds twice and flicker
+  vim.api.nvim_win_call(term_win, function()
+    vim.cmd("normal! G")
+  end)
   if follow == "insert" then
+    vim.api.nvim_set_current_win(term_win)
     vim.cmd("startinsert")
-  elseif follow ~= "focus" then
+  elseif follow == "focus" then
+    vim.api.nvim_set_current_win(term_win)
+  elseif vim.api.nvim_get_current_win() ~= code_win and vim.api.nvim_win_is_valid(code_win) then
+    -- opening the split moved focus into the terminal: return to the code
     vim.api.nvim_set_current_win(code_win)
   end
 end
@@ -303,8 +322,13 @@ local function parse_error_line(line, term_buf)
   end
 end
 
+--- Width the terminal wraps its output at. The window's *current* width is
+--- the right answer: Neovim >= 0.10 re-wraps terminal content whenever the
+--- window is resized, so buffer lines always follow the live width. (0.9
+--- doesn't re-wrap — there, output printed before a resize can join wrong,
+--- and a shrink truncates those lines anyway, losing the tail for good.)
 ---@param term_buf integer
----@return integer # width the terminal wraps its output at
+---@return integer
 local function pty_width(term_buf)
   local win = find_win_for_buf(term_buf)
   return win and vim.api.nvim_win_get_width(win) or vim.o.columns
@@ -329,7 +353,9 @@ local function logical_line_at(lines, row, width)
 end
 
 --- Window a jump should land in: the code window we last ran from, else the
---- previous window, else any window showing a normal file buffer.
+--- previous window, else any window showing a normal file buffer. Only
+--- windows in the current tab qualify — the last code window may live in
+--- another tab, and jumping there would switch tabs unexpectedly.
 ---@return integer|nil win
 local function pick_code_win()
   local wins = {}
@@ -338,8 +364,14 @@ local function pick_code_win()
   end
   wins[#wins + 1] = vim.fn.win_getid(vim.fn.winnr("#"))
   vim.list_extend(wins, vim.api.nvim_tabpage_list_wins(0))
+  local tab = vim.api.nvim_get_current_tabpage()
   for _, win in ipairs(wins) do
-    if win ~= 0 and vim.api.nvim_win_is_valid(win) and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == "" then
+    if
+      win ~= 0
+      and vim.api.nvim_win_is_valid(win)
+      and vim.api.nvim_win_get_tabpage(win) == tab
+      and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == ""
+    then
       return win
     end
   end
@@ -711,13 +743,30 @@ local function build_runner_command(ctx)
   return time .. runner .. " " .. file
 end
 
+--- Write `buf` if it has unsaved changes. A failure (readonly, missing
+--- directory, ...) is reported, so a run doesn't silently use the stale
+--- on-disk version.
+---@param buf integer
+---@return boolean ok
+local function update_buffer(buf)
+  local ok, err = pcall(vim.api.nvim_buf_call, buf, function()
+    vim.cmd("silent update")
+  end)
+  if not ok then
+    vim.notify(err --[[@as string]], vim.log.levels.ERROR)
+  end
+  return ok
+end
+
 --- Save and run the current file in the shared shell terminal. When invoked
 --- from the terminal itself (or any non-file buffer), re-run the last run.
 function M.run()
   local ctx
   local current_file = vim.fn.expand("%:p")
   if vim.bo.buftype == "" and current_file ~= "" then
-    vim.cmd("write")
+    if not update_buffer(vim.api.nvim_get_current_buf()) then
+      return
+    end
     ctx = {
       file = current_file,
       stem = vim.fn.expand("%:t:r"),
@@ -729,6 +778,12 @@ function M.run()
     ctx = M._last_run
     if not ctx then
       vim.notify("Nothing to run from here", vim.log.levels.WARN)
+      return
+    end
+    -- a re-run executes the file from disk: save its buffer too if it is
+    -- loaded with edits made since the original run
+    local src = vim.fn.bufnr(ctx.file)
+    if src ~= -1 and not update_buffer(src) then
       return
     end
   end
@@ -921,32 +976,22 @@ local function line_is_marker(s)
 end
 
 local function get_current_cell_range()
-  local total = vim.api.nvim_buf_line_count(0)
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   local cur = vim.fn.line(".")
-  local current_is_marker = line_is_marker(vim.api.nvim_get_current_line())
-  local up = cur
 
-  while up >= 1 do
-    local l = vim.api.nvim_buf_get_lines(0, up - 1, up, false)[1]
-    if line_is_marker(l) then
-      break
-    end
+  local up = cur
+  while up >= 1 and not line_is_marker(lines[up]) do
     up = up - 1
   end
 
-  local start_line = (up >= 1) and (up + 1) or 1
-  local down = current_is_marker and (cur + 1) or cur
-
-  while down <= total do
-    local l = vim.api.nvim_buf_get_lines(0, down - 1, down, false)[1]
-    if line_is_marker(l) then
-      break
-    end
+  local down = line_is_marker(lines[cur]) and cur + 1 or cur
+  while down <= #lines and not line_is_marker(lines[down]) do
     down = down + 1
   end
 
-  local end_line = (down <= total) and (down - 1) or total
-  return start_line, end_line
+  -- up/down stopped on the surrounding markers (or ran off the buffer):
+  -- the cell is what lies strictly between them
+  return up + 1, down - 1
 end
 
 local function get_current_cell_text()
