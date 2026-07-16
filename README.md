@@ -93,10 +93,13 @@ require("tarminal").setup({
     python = "python",                  --   interpreted: `python foo.py`
     sh = "bash",
     lua = "lua",
+    javascript = "node",
     go = "go run",
     haskell = "runghc",
     ocaml = "ocaml",
     c = "cc",                          --   compiler: `cc foo.c -o foo && ./foo`
+    rust = "rustc",
+    fortran = "gfortran",
   },
   compilers = {                         -- executable names recognized as compilers
     "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",
@@ -123,6 +126,8 @@ program is listed in `compilers`, tarminal instead builds and runs it
 so `/usr/bin/clang-17 -Wall` is recognized too. Add another executable name to
 `compilers` when using a compatible compiler that is not included by default.
 With `time_runs` enabled, only the produced binary is timed, not compilation.
+`time` is a shell keyword in bash/zsh/fish; with a plain POSIX `sh` as the
+configured shell it needs `/usr/bin/time` installed.
 
 Set `quickfix = { open = false, close_terminal = false }` if you want
 `errors_to_quickfix` to only populate the quickfix list, leaving the terminal
