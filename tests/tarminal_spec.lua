@@ -14,6 +14,25 @@ describe("tarminal", function()
     error("missing upvalue: " .. wanted)
   end
 
+  -- Wait until run `id`'s done marker is printed and the shell has taken
+  -- the foreground back: only then will a follow-up run() not be refused
+  -- by the busy guard (on slow CI the previous command is still running
+  -- when two runs are issued back-to-back).
+  local function wait_run_finished(term_buf, id)
+    local token = ("DONE[%d]"):format(id)
+    local term_busy = get_upvalue(tarminal.run, "term_busy")
+    return vim.wait(8000, function()
+      local seen = false
+      for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:find(token, 1, true) then
+          seen = true
+          break
+        end
+      end
+      return seen and not term_busy(term_buf)
+    end, 50)
+  end
+
   before_each(function()
     tarminal = require("tarminal")
     tarminal.setup()
@@ -354,6 +373,7 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_buf)
+    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
 
     -- a leftover highlight from a previous run, sitting on a line the
     -- terminal will rewrite in place
@@ -405,6 +425,7 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_win)
+    assert.is_true(wait_run_finished(vim.api.nvim_win_get_buf(term_win), tarminal._run_id))
     vim.api.nvim_set_current_win(term_win)
     tarminal.run()
 
@@ -523,9 +544,8 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_buf)
-    assert.is_true(vim.wait(4000, function()
-      return has_banner(first)
-    end, 50))
+    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
+    assert.is_true(has_banner(first))
 
     tarminal.run()
     local second = ("RUN[%d]"):format(tarminal._run_id)
