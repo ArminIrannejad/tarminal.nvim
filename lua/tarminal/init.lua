@@ -753,7 +753,8 @@ local function update_buffer(buf)
     vim.cmd("silent update")
   end)
   if not ok then
-    vim.notify(err --[[@as string]], vim.log.levels.ERROR)
+    err = tostring(err)
+    vim.notify(err:match("(E%d+:[^\n]*)") or err, vim.log.levels.ERROR)
   end
   return ok
 end
