@@ -125,9 +125,14 @@ program is listed in `compilers`, tarminal instead builds and runs it
 (`clang -Wall foo.c -o foo && ./foo`). Paths and version suffixes are handled,
 so `/usr/bin/clang-17 -Wall` is recognized too. Add another executable name to
 `compilers` when using a compatible compiler that is not included by default.
-With `time_runs` enabled, only the produced binary is timed, not compilation.
-`time` is a shell keyword in bash/zsh/fish; with a plain POSIX `sh` as the
-configured shell it needs `/usr/bin/time` installed.
+With `time_runs` enabled, runs are prefixed with `time` — but only when a
+`time` binary is installed, so the command works in any POSIX shell instead
+of relying on a shell keyword; without one, timing is silently skipped. For
+compiled files only the produced binary is timed, not compilation.
+
+The `shell` command is split on whitespace and spawned directly, without a
+wrapper shell — any POSIX-compatible shell works. (With a shell that lacks
+job control, like dash, the busy-terminal guard degrades to a no-op.)
 
 Set `quickfix = { open = false, close_terminal = false }` if you want
 `errors_to_quickfix` to only populate the quickfix list, leaving the terminal

@@ -66,7 +66,9 @@ file (`python foo.py`). If the command's first program is listed in
 `clang -Wpedantic -Wall foo.c -o foo && ./foo`. Executable paths and version
 suffixes are recognized too (for example, `/usr/bin/clang-17`). Add
 compatible compiler names to `compilers` as needed. With `time_runs = true`
-(the default), only the produced binary is timed, not compilation.
+(the default), runs are timed only when a `time` binary is installed (the
+shell keyword is not relied on); for compiled files only the produced
+binary is timed, not compilation.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
