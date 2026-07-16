@@ -87,7 +87,7 @@ describe("tarminal", function()
   end)
 
   it("automatically compiles and runs compiler-based runners", function()
-    tarminal.setup({ runners = { c = "clang -Wpedantic -Wall" } })
+    tarminal.setup({ time_runs = false, runners = { c = "clang -Wpedantic -Wall" } })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local command = build({
       file = "/tmp/example.c",
@@ -95,39 +95,45 @@ describe("tarminal", function()
       dir = "/tmp",
       ft = "c",
     })
-    assert.equals("clang -Wpedantic -Wall '/tmp/example.c' -o 'example' && time ./'example'", command)
+    assert.equals("clang -Wpedantic -Wall '/tmp/example.c' -o 'example' && ./'example'", command)
   end)
 
-  it("appends the file to interpreted runners, timed by default", function()
+  it("appends the file to interpreted runners", function()
+    tarminal.setup({ time_runs = false })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
-    assert.equals("time python '/tmp/example.py'", build(ctx))
-
-    tarminal.setup({ time_runs = false })
     assert.equals("python '/tmp/example.py'", build(ctx))
   end)
 
-  it("times only the last command of a && chain", function()
+  it("times runs only when a time binary is installed", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
-    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
-    assert.equals("cc '/tmp/example.c' -o 'example' && time ./'example'", build(ctx))
+    local py = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
+    local c = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
 
-    tarminal.setup({ time_runs = false })
-    assert.equals("cc '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
+    if vim.fn.executable("time") == 1 then
+      assert.equals("time python '/tmp/example.py'", build(py))
+      -- for a compile chain, only the produced binary is timed
+      assert.equals("cc '/tmp/example.c' -o 'example' && time ./'example'", build(c))
+    else
+      -- no binary: the prefix is skipped so any POSIX shell can run this
+      assert.equals("python '/tmp/example.py'", build(py))
+      assert.equals("cc '/tmp/example.c' -o 'example' && ./'example'", build(c))
+    end
   end)
 
   it("does not overwrite an extensionless source file when compiling", function()
+    tarminal.setup({ time_runs = false })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local command = build({ file = "/tmp/prog", stem = "prog", dir = "/tmp", ft = "c" })
-    assert.equals("cc '/tmp/prog' -o 'prog.out' && time ./'prog.out'", command)
+    assert.equals("cc '/tmp/prog' -o 'prog.out' && ./'prog.out'", command)
   end)
 
   it("recognizes compiler paths and versioned compiler names", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
 
-    tarminal.setup({ runners = { c = "/usr/bin/clang-17 -Wall" } })
-    assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && time ./'example'", build(ctx))
+    tarminal.setup({ time_runs = false, runners = { c = "/usr/bin/clang-17 -Wall" } })
+    assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
   it("runs a named file with its configured runner", function()
