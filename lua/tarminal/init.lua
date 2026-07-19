@@ -18,7 +18,7 @@ local uv = vim.uv or vim.loop
 ---@field park_on_error boolean after a run, highlight error locations and park the cursor on the first one
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a `time` binary is installed (for compiled files: the produced binary)
----@field runners table<string, string> filetype -> command the file is run with; compilers are recognized by name
+---@field runners table<string, string|tarminal.Runner> filetype -> command the file is run with; compilers are recognized by name
 ---@field compilers string[] program names treated as compilers: the file is built with `-o` first, then the binary is run
 ---@field repls table<string, string|tarminal.Repl> filetype -> interactive REPL command
 ---@field quickfix tarminal.Quickfix
@@ -27,6 +27,14 @@ local uv = vim.uv or vim.loop
 ---@class tarminal.Quickfix
 ---@field open boolean open the quickfix window after collecting
 ---@field close_terminal boolean close the terminal window after collecting
+
+--- A `runners` entry with options; a plain command string infers
+--- compile-then-run from the command's program name (see `compilers`).
+---@class tarminal.Runner
+---@field cmd string command the file is run with
+---@field compile boolean|nil true: build with `-o` first, then run the
+---binary (for compilers not recognized by name); false: never compile,
+---run the file with the command directly
 
 --- A `repls` entry with options; a plain command string means all defaults.
 ---@class tarminal.Repl
@@ -740,10 +748,28 @@ local function is_compiler(runner)
   return false
 end
 
+--- Normalize a `runners` entry: a plain string is the command, with
+--- compile-then-run inferred from its program name; a table carries the
+--- command plus an explicit `compile` override (see tarminal.Runner).
+---@param ft string
+---@return string|nil cmd, boolean compile
+local function runner_spec(ft)
+  local spec = M.config.runners[ft]
+  local cmd, compile = spec, nil
+  if type(spec) == "table" then
+    cmd, compile = spec.cmd, spec.compile
+  end
+  if compile == nil then
+    compile = cmd ~= nil and is_compiler(cmd)
+  end
+  return cmd, compile
+end
+
 --- Build the shell command that runs a file: the runner with the file
---- appended (`python foo.py`). When the runner's program is a compiler
---- (see `config.compilers`), the file is built first and the result is run
---- (`cc foo.c -o foo && ./foo`); `time_runs` times the run, not the build.
+--- appended (`python foo.py`). When the runner compiles (an explicit
+--- `compile = true`, or a program listed in `config.compilers`), the file
+--- is built first and the result is run (`cc foo.c -o foo && ./foo`);
+--- `time_runs` times the run, not the build.
 --- Timing requires a `time` binary — the shell keyword alone isn't relied
 --- on, so the command works in any POSIX shell; without the binary the
 --- prefix is skipped. An extensionless file compiles to `<name>.out` — its
@@ -751,14 +777,14 @@ end
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
-  local runner = M.config.runners[ctx.ft]
+  local runner, compile = runner_spec(ctx.ft)
   if not runner then
     return
   end
 
   local time = M.config.time_runs and vim.fn.executable("time") == 1 and "time " or ""
   local file = vim.fn.shellescape(ctx.file)
-  if is_compiler(runner) then
+  if compile then
     local stem = ctx.stem
     if stem == vim.fn.fnamemodify(ctx.file, ":t") then
       stem = stem .. ".out"

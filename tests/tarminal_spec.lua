@@ -128,6 +128,38 @@ describe("tarminal", function()
     assert.equals("cc '/tmp/prog' -o 'prog.out' && ./'prog.out'", command)
   end)
 
+  it("compiles table runners with an explicit compile flag", function()
+    tarminal.setup({
+      time_runs = false,
+      runners = { zig = { cmd = "zig build-exe", compile = true } },
+    })
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local command = build({
+      file = "/tmp/example.zig",
+      stem = "example",
+      dir = "/tmp",
+      ft = "zig",
+    })
+    assert.equals("zig build-exe '/tmp/example.zig' -o 'example' && ./'example'", command)
+  end)
+
+  it("runs directly when a table runner sets compile = false", function()
+    tarminal.setup({
+      time_runs = false,
+      runners = { c = { cmd = "cc", compile = false } },
+    })
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
+    assert.equals("cc '/tmp/example.c'", build(ctx))
+  end)
+
+  it("infers compiling by name for a table runner without a compile flag", function()
+    tarminal.setup({ time_runs = false, runners = { c = { cmd = "clang -Wall" } } })
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
+    assert.equals("clang -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
+  end)
+
   it("recognizes compiler paths and versioned compiler names", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
