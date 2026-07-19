@@ -68,8 +68,11 @@ file (`python foo.py`). If the command's first program is listed in
 `compilers`, tarminal builds the file and runs the result automatically:
 `c = "clang -Wpedantic -Wall"` becomes
 `clang -Wpedantic -Wall foo.c -o foo && ./foo`. Executable paths and version
-suffixes are recognized too (for example, `/usr/bin/clang-17`). Add
-compatible compiler names to `compilers` as needed. With `time_runs = true`
+suffixes are recognized too (for example, `/usr/bin/clang-17`). For a
+compiler the name detection doesn't know, a runner entry can be a table with
+an explicit flag instead: `zig = { cmd = "zig build-exe", compile = true }`
+builds with `-o` and runs the binary; `compile = false` forces running the
+file directly. With `time_runs = true`
 (the default), runs are timed only when a `time` binary is installed (the
 shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.

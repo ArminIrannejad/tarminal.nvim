@@ -123,8 +123,20 @@ overridden independently; the same goes for `repls`. For an interpreted
 runner, tarminal appends the file (`python foo.py`). When the command's first
 program is listed in `compilers`, tarminal instead builds and runs it
 (`clang -Wall foo.c -o foo && ./foo`). Paths and version suffixes are handled,
-so `/usr/bin/clang-17 -Wall` is recognized too. Add another executable name to
-`compilers` when using a compatible compiler that is not included by default.
+so `/usr/bin/clang-17 -Wall` is recognized too.
+
+For a compiler the name detection doesn't know, a runner entry can also be a
+table with an explicit `compile` flag — no need to touch the `compilers` list:
+
+```lua
+runners = {
+  zig = { cmd = "zig build-exe", compile = true },  -- build with -o, run the binary
+  c   = { cmd = "cc", compile = false },            -- force running the file directly
+}
+```
+
+With `compile` unset (or a plain string entry), compile-then-run is inferred
+from the command's program name via `compilers` as above.
 With `time_runs` enabled, runs are prefixed with `time` — but only when a
 `time` binary is installed, so the command works in any POSIX shell instead
 of relying on a shell keyword; without one, timing is silently skipped. For
