@@ -303,6 +303,61 @@ describe("tarminal", function()
     assert.equals(2, last)
   end)
 
+  it("recognizes REPL entries that disable bracketed paste", function()
+    local send = get_upvalue(tarminal.send_cell, "send_to_repl")
+    local spec = get_upvalue(send, "repl_spec")
+    local cmd, bracketed = spec("python")
+    assert.equals("ipython", cmd)
+    assert.is_true(bracketed)
+    cmd, bracketed = spec("ocaml")
+    assert.equals("ocaml", cmd)
+    assert.is_false(bracketed)
+  end)
+
+  it("wraps REPL sends in bracketed paste by default", function()
+    -- a "REPL" that copies its stdin to a file, so the exact bytes the REPL
+    -- receives can be inspected
+    local out = vim.fn.tempname()
+    tarminal.setup({
+      follow_repl = "none",
+      repls = { lua = "cat > " .. vim.fn.shellescape(out) },
+    })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)", "print(2)" })
+    vim.bo.filetype = "lua"
+
+    tarminal.send_cell()
+
+    local received = vim.wait(8000, function()
+      return vim.fn.filereadable(out) == 1 and table.concat(vim.fn.readfile(out), "\n"):find("\27[201~", 1, true) ~= nil
+    end, 50)
+    local content = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    assert.is_true(received)
+    assert.is_truthy(content:find("\27[200~print(1)\nprint(2)\n\27[201~", 1, true))
+  end)
+
+  it("sends raw text to a REPL with bracketed paste disabled", function()
+    local out = vim.fn.tempname()
+    tarminal.setup({
+      follow_repl = "none",
+      repls = { lua = { cmd = "cat > " .. vim.fn.shellescape(out), bracketed_paste = false } },
+    })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)", "print(2)" })
+    vim.bo.filetype = "lua"
+
+    tarminal.send_cell()
+
+    local received = vim.wait(8000, function()
+      return vim.fn.filereadable(out) == 1 and table.concat(vim.fn.readfile(out), "\n"):find("print(2)", 1, true) ~= nil
+    end, 50)
+    local content = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    assert.is_true(received)
+    -- no paste escape sequences reach a REPL that cannot parse them
+    assert.is_falsy(content:find("\27", 1, true))
+    assert.is_truthy(content:find("print(1)\nprint(2)", 1, true))
+  end)
+
   it("toggle opens and closes the shell terminal split", function()
     tarminal.setup()
     local before = #vim.api.nvim_list_wins()
@@ -314,6 +369,21 @@ describe("tarminal", function()
     assert.is_truthy(vim.api.nvim_buf_get_name(buf):find("tarminal://shell", 1, true))
     tarminal.toggle()
     assert.equals(before, #vim.api.nvim_list_wins())
+  end)
+
+  it("toggle hides the terminal even when it is the last window", function()
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    vim.cmd("wincmd o") -- the terminal becomes the only window
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(0))
+
+    tarminal.toggle()
+    assert.is_not.equals(term_buf, vim.api.nvim_get_current_buf())
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(0))
+
+    -- the terminal survived and can be shown again
+    tarminal.toggle()
+    assert.equals(term_buf, vim.api.nvim_get_current_buf())
   end)
 
   it("shows and hides the shared terminal independently in each tab", function()
@@ -595,6 +665,34 @@ describe("tarminal", function()
 
     vim.cmd("only")
     vim.fn.delete(file)
+  end)
+
+  it("clamps a line 0 location to the first line when jumping", function()
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    -- linkers emit locations with line 0
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      ("printf '%%s:0: undefined reference to main\\n' %s"):format(file),
+      "sleep 10",
+    }, script)
+    tarminal.setup({ shell = "sh " .. script })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":0:", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.jump_to_error()
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 1, 0 }, vim.api.nvim_win_get_cursor(0))
+    vim.fn.delete(file)
+    vim.fn.delete(script)
   end)
 
   it("navigates and jumps between error locations, repeatedly", function()
