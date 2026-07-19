@@ -14,12 +14,12 @@ describe("tarminal", function()
     error("missing upvalue: " .. wanted)
   end
 
-  -- Wait until run `id`'s done marker is printed and the shell has taken
-  -- the foreground back: only then will a follow-up run() not be refused
-  -- by the busy guard (on slow CI the previous command is still running
+  -- Wait until run `id`'s banner is printed and the shell has taken the
+  -- foreground back: only then will a follow-up run() not be refused by
+  -- the busy guard (on slow CI the previous command is still running
   -- when two runs are issued back-to-back).
   local function wait_run_finished(term_buf, id)
-    local token = ("DONE[%d]"):format(id)
+    local token = ("RUN[%d]"):format(id)
     local term_busy = get_upvalue(tarminal.run, "term_busy")
     return vim.wait(8000, function()
       local seen = false
@@ -646,6 +646,77 @@ describe("tarminal", function()
     vim.bo.filetype = "lua"
     -- a runner that prints an error location pointing at the file itself
     tarminal.setup({
+      follow_run = "none",
+      time_runs = false,
+      runners = { lua = [[printf '%s:1:1: boom\n']] },
+    })
+
+    tarminal.run()
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+
+    local ns = get_upvalue(tarminal.run, "ns")
+    local highlighted = vim.wait(6000, function()
+      return #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}) > 0
+    end, 50)
+    local stopped = vim.wait(6000, function()
+      return tarminal._watch_timer == nil
+    end, 50)
+    vim.fn.delete(file)
+    assert.is_true(highlighted)
+    assert.is_true(stopped)
+  end)
+
+  it("prints no banner when banner = false", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      banner = false,
+      park_on_error = false,
+      follow_run = "none",
+      time_runs = false,
+      runners = { lua = "echo tarminal_ran; true" },
+    })
+
+    tarminal.run()
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+
+    -- the runner's own output is printed after any banner would have been
+    local ran = vim.wait(8000, function()
+      for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:find("tarminal_ran", 1, true) then
+          return true
+        end
+      end
+      return false
+    end, 50)
+    vim.fn.delete(file)
+    assert.is_true(ran)
+    for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+      assert.is_falsy(l:match("^====="))
+    end
+  end)
+
+  it("highlights errors and stops the watcher without a banner", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      banner = false,
       follow_run = "none",
       time_runs = false,
       runners = { lua = [[printf '%s:1:1: boom\n']] },

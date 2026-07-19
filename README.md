@@ -12,9 +12,9 @@ cells, and clickable error locations in terminal output.
   independently per tab.
 - **Run the current file** — saves the buffer and runs it with the runner
   configured for its filetype (`time`d unless disabled), with a banner
-  separating runs. From a non-file buffer it re-runs the last run. Compiler
-  commands are recognized automatically, so `c = "clang -Wall"` compiles
-  the file and runs the resulting binary.
+  separating runs (`banner = false` turns it off). From a non-file buffer
+  it re-runs the last run. Compiler commands are recognized automatically,
+  so `c = "clang -Wall"` compiles the file and runs the resulting binary.
 - **Error navigation** — file locations in the output (`foo.c:12:5:`,
   `File "foo.py", line 12`, …) are highlighted; jump to the location under
   the cursor (wrapped long lines are handled), move between locations, or
@@ -92,6 +92,7 @@ require("tarminal").setup({
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   cell_marker = "# COMMAND ----------", -- line that delimits REPL cells
   time_runs = true,                     -- `time` the run (for compiled files: the binary)
+  banner = true,                        -- print a "===== RUN[n]: <time> =====" line before each run
   runners = {                           -- filetype -> command used to run a file
     python = "python",                  --   interpreted: `python foo.py`
     sh = "bash",
@@ -146,6 +147,12 @@ With `time_runs` enabled, runs are prefixed with `time` — but only when a
 `time` binary is installed, so the command works in any POSIX shell instead
 of relying on a shell keyword; without one, timing is silently skipped. For
 compiled files only the produced binary is timed, not compilation.
+
+With `banner = false` a run prints nothing extra: no banner line, and the
+previous screen is not pushed into scrollback first — output simply appends
+at the prompt, like a hand-typed command. Error highlighting and quickfix
+collection still track the new run's output; only the view pinning to the
+banner is skipped.
 
 A `repls` entry is the REPL command, or a table `{ cmd = ..., bracketed_paste
 = false }` for REPLs that read raw stdin and would see the bracketed-paste

@@ -39,6 +39,7 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       park_on_error = true,
       cell_marker = "# COMMAND ----------",
       time_runs = true,
+      banner = true,            -- "===== RUN[n]: <time> =====" line before each run
       runners = {
         python = "python",
         c = "cc",
@@ -80,6 +81,11 @@ file directly. With `time_runs = true`
 (the default), runs are timed only when a `time` binary is installed (the
 shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
+
+With `banner = false` a run prints nothing extra — no banner line, and the
+previous screen is not pushed into scrollback; output simply appends at the
+prompt. Error highlighting and quickfix collection still track the new
+run's output; only the view pinning to the banner is skipped.
 
 A `repls` entry is the REPL command, or a table with `cmd` and
 `bracketed_paste = false` for REPLs that read raw stdin and would see the
