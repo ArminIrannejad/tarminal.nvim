@@ -1,13 +1,15 @@
 # tarminal.nvim
 
-Terminal runner / REPL integration for Neovim: a shared bottom-split shell
+Terminal runner / REPL integration for Neovim: a shared split shell
 terminal for running files, filetype-aware REPLs for sending selections and
 cells, and clickable error locations in terminal output.
 
 ## Features
 
-- **Shared shell terminal** — toggle a bottom split running your shell;
-  its buffer is reused across runs and can be shown independently per tab.
+- **Shared shell terminal** — toggle a full-width split running your shell;
+  it opens where your `'splitbelow'` setting puts splits (overridable with
+  `split_position`). Its buffer is reused across runs and can be shown
+  independently per tab.
 - **Run the current file** — saves the buffer and runs it with the runner
   configured for its filetype (`time`d unless disabled), with a banner
   separating runs. From a non-file buffer it re-runs the last run. Compiler
@@ -82,7 +84,8 @@ Defaults:
 
 ```lua
 require("tarminal").setup({
-  split_height = 12,                    -- height of the bottom terminal split
+  split_height = 12,                    -- height of the terminal split
+  split_position = "auto",              -- "auto" (follow 'splitbelow') | "bottom" | "top"
   shell = vim.env.SHELL or "/bin/bash", -- shell for the shared terminal
   follow_run = "focus",                 -- focus after a run: "none" | "focus" | "insert"
   follow_repl = "none",                 -- focus after sending to a REPL

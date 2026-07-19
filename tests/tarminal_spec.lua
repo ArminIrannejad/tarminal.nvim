@@ -390,6 +390,40 @@ describe("tarminal", function()
     assert.is_truthy(content:find("print(1)\nprint(2)", 1, true))
   end)
 
+  local function toggle_and_get_row()
+    tarminal.toggle()
+    local term_win = vim.api.nvim_get_current_win()
+    assert.equals("tarminal", vim.bo[vim.api.nvim_win_get_buf(term_win)].filetype)
+    local row = vim.fn.win_screenpos(term_win)[1]
+    tarminal.toggle()
+    return row
+  end
+
+  it("split position follows 'splitbelow' by default", function()
+    local saved = vim.o.splitbelow
+
+    vim.o.splitbelow = true
+    local below_row = toggle_and_get_row()
+    vim.o.splitbelow = false
+    local above_row = toggle_and_get_row()
+
+    vim.o.splitbelow = saved
+    assert.is_true(below_row > above_row)
+  end)
+
+  it("split_position overrides 'splitbelow'", function()
+    local saved = vim.o.splitbelow
+    vim.o.splitbelow = true
+
+    tarminal.setup({ split_position = "top" })
+    local top_row = toggle_and_get_row()
+    tarminal.setup({ split_position = "bottom" })
+    local bottom_row = toggle_and_get_row()
+
+    vim.o.splitbelow = saved
+    assert.is_true(top_row < bottom_row)
+  end)
+
   it("toggle opens and closes the shell terminal split", function()
     tarminal.setup()
     local before = #vim.api.nvim_list_wins()

@@ -14,7 +14,8 @@ Table of Contents                                 *tarminal-table-of-contents*
 
 tarminal.nvim is a terminal runner / REPL integration:
 
-- A shared shell terminal buffer in a bottom split, reused by runs and shown
+- A shared shell terminal buffer in a full-width split (placed by
+  'splitbelow', or forced with `split_position`), reused by runs and shown
   independently in each tab.
 - Run the current file with a per-filetype runner command; output is
   separated by run banners.
@@ -31,6 +32,7 @@ Call the setup function, optionally passing overrides for the defaults: >lua
 
     require("tarminal").setup({
       split_height = 12,
+      split_position = "auto",  -- "auto" (follow 'splitbelow') | "bottom" | "top"
       shell = vim.env.SHELL or "/bin/bash",
       follow_run = "focus",     -- "none" | "focus" | "insert"
       follow_repl = "none",

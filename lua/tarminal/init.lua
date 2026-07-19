@@ -10,8 +10,15 @@ local uv = vim.uv or vim.loop
 ---| '"focus"'  # move to the terminal window, normal mode
 ---| '"insert"' # move to the terminal window and enter terminal-mode
 
+--- Where the terminal split opens (always full-width):
+---@alias tarminal.SplitPosition
+---| '"auto"'   # follow 'splitbelow': bottom when set, top otherwise
+---| '"bottom"' # bottom, regardless of 'splitbelow'
+---| '"top"'    # top, regardless of 'splitbelow'
+
 ---@class tarminal.Config
----@field split_height integer height of the bottom terminal split
+---@field split_height integer height of the terminal split
+---@field split_position tarminal.SplitPosition
 ---@field shell string
 ---@field follow_run tarminal.Follow
 ---@field follow_repl tarminal.Follow
@@ -44,6 +51,7 @@ local uv = vim.uv or vim.loop
 
 local defaults = {
   split_height = 12,
+  split_position = "auto",
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",
   follow_repl = "none",
@@ -68,7 +76,6 @@ local defaults = {
   -- `go build`, `zig build-exe`, ...) can't be listed — configure those as
   -- a runner with an explicit `compile` flag, or run them directly.
   compilers = {
-    -- C / C++ / CUDA
     "cc",
     "gcc",
     "clang",
@@ -81,13 +88,11 @@ local defaults = {
     "icx",
     "icpx",
     "nvcc",
-    -- Fortran
     "gfortran",
     "flang",
     "flang-new",
     "ifort",
     "ifx",
-    -- other languages
     "rustc",
     "ghc",
     "swiftc",
@@ -109,8 +114,14 @@ local defaults = {
 
 M.config = vim.deepcopy(defaults)
 
-local function bottom_split()
-  vim.cmd("botright split")
+--- Open the full-width terminal split, at the position `split_position`
+--- asks for — with "auto", wherever the user's 'splitbelow' puts splits.
+local function terminal_split()
+  local pos = M.config.split_position
+  if pos == "auto" then
+    pos = vim.o.splitbelow and "bottom" or "top"
+  end
+  vim.cmd(pos == "top" and "topleft split" or "botright split")
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_height(win, M.config.split_height)
   vim.wo.winfixheight = true
@@ -140,7 +151,7 @@ local function ensure_window_for_buf(buf)
   if win then
     return win
   end
-  win = bottom_split()
+  win = terminal_split()
   vim.api.nvim_win_set_buf(win, buf)
   return win
 end
@@ -170,14 +181,10 @@ local function find_live_terminal(var_name, expected)
   end
 end
 
---- Open a terminal running the configured shell in a bottom split. Window
---- options, filetype and buffer name are applied here so they only ever
---- affect tarminal's own terminals. Setting the filetype fires the FileType
---- event, so users can hook buffer-local keymaps on `FileType tarminal`.
 ---@param name string buffer name, e.g. "tarminal://shell"
 ---@return integer buf, integer win
 local function open_shell_term(name)
-  local win = bottom_split()
+  local win = terminal_split()
   -- Spawn in a fresh buffer via jobstart/termopen instead of :terminal,
   -- whose Ex parsing would expand % and # and split the command on |.
   -- The command is passed as a list, so the shell is spawned *directly*:
