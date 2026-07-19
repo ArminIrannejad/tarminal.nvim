@@ -44,7 +44,9 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       },
       compilers = {
         "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",
-        "gfortran", "rustc", "ghc",
+        "icc", "icpc", "icx", "icpx", "nvcc",
+        "gfortran", "flang", "flang-new", "ifort", "ifx",
+        "rustc", "ghc", "swiftc", "gdc", "ocamlopt", "ocamlc",
       },
       repls = {
         python = "ipython",

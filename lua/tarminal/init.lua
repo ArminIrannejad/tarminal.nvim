@@ -62,7 +62,39 @@ local defaults = {
     rust = "rustc",
     fortran = "gfortran",
   },
-  compilers = { "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc", "gfortran", "rustc", "ghc" },
+  -- Only compilers that accept `<source> -o <out>` and produce a directly
+  -- executable result belong here: the build command is composed exactly
+  -- that way. Compilers with other conventions (javac, scalac, luac, dmd,
+  -- `go build`, `zig build-exe`, ...) can't be listed — configure those as
+  -- a runner with an explicit `compile` flag, or run them directly.
+  compilers = {
+    -- C / C++ / CUDA
+    "cc",
+    "gcc",
+    "clang",
+    "g++",
+    "clang++",
+    "c++",
+    "tcc",
+    "icc",
+    "icpc",
+    "icx",
+    "icpx",
+    "nvcc",
+    -- Fortran
+    "gfortran",
+    "flang",
+    "flang-new",
+    "ifort",
+    "ifx",
+    -- other languages
+    "rustc",
+    "ghc",
+    "swiftc",
+    "gdc",
+    "ocamlopt",
+    "ocamlc",
+  },
   repls = {
     python = "ipython",
     lua = "lua -i",

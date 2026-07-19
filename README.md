@@ -102,8 +102,10 @@ require("tarminal").setup({
     fortran = "gfortran",
   },
   compilers = {                         -- executable names recognized as compilers
-    "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",
-    "gfortran", "rustc", "ghc",
+    "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",           -- C/C++
+    "icc", "icpc", "icx", "icpx", "nvcc",                           -- Intel, CUDA
+    "gfortran", "flang", "flang-new", "ifort", "ifx",               -- Fortran
+    "rustc", "ghc", "swiftc", "gdc", "ocamlopt", "ocamlc",
   },
   repls = {                             -- filetype -> interactive REPL command
     python = "ipython",
