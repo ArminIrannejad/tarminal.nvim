@@ -20,13 +20,19 @@ local uv = vim.uv or vim.loop
 ---@field time_runs boolean `time` the run when a `time` binary is installed (for compiled files: the produced binary)
 ---@field runners table<string, string> filetype -> command the file is run with; compilers are recognized by name
 ---@field compilers string[] program names treated as compilers: the file is built with `-o` first, then the binary is run
----@field repls table<string, string> filetype -> interactive REPL command
+---@field repls table<string, string|tarminal.Repl> filetype -> interactive REPL command
 ---@field quickfix tarminal.Quickfix
 
 --- What errors_to_quickfix does besides populating the quickfix list.
 ---@class tarminal.Quickfix
 ---@field open boolean open the quickfix window after collecting
 ---@field close_terminal boolean close the terminal window after collecting
+
+--- A `repls` entry with options; a plain command string means all defaults.
+---@class tarminal.Repl
+---@field cmd string interactive REPL command
+---@field bracketed_paste boolean|nil false for REPLs that read raw stdin and
+---would see the paste escape sequences as input (the stock ocaml toplevel)
 
 local defaults = {
   split_height = 12,
@@ -53,7 +59,7 @@ local defaults = {
     python = "ipython",
     lua = "lua -i",
     haskell = "ghci",
-    ocaml = "ocaml",
+    ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   quickfix = {
     open = true,
@@ -431,7 +437,8 @@ function M.jump_to_error()
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
-  lnum = math.min(lnum, vim.api.nvim_buf_line_count(buf))
+  -- linkers emit "file:0:" locations — clamp both ends of the range
+  lnum = math.min(math.max(lnum, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
 end
@@ -698,7 +705,13 @@ function M.toggle()
   local buf = find_live_terminal("is_shell", true)
   local win = find_win_for_buf(buf)
   if win then
-    vim.api.nvim_win_close(win, false)
+    if not pcall(vim.api.nvim_win_close, win, false) then
+      -- the terminal is the last window (E444): hide it by swapping in an
+      -- empty buffer instead of closing the window
+      vim.api.nvim_win_call(win, function()
+        vim.cmd("enew")
+      end)
+    end
   else
     get_or_create_shell_term()
   end
@@ -924,6 +937,18 @@ local function get_line_range(line1, line2)
   return table.concat(vim.api.nvim_buf_get_lines(0, line1 - 1, line2, false), "\n")
 end
 
+--- Normalize a `repls` entry: a plain string is the REPL command with all
+--- defaults; a table carries the command plus options (see tarminal.Repl).
+---@param ft string
+---@return string|nil cmd, boolean bracketed_paste
+local function repl_spec(ft)
+  local spec = M.config.repls[ft]
+  if type(spec) == "table" then
+    return spec.cmd, spec.bracketed_paste ~= false
+  end
+  return spec, true
+end
+
 ---@param ft string filetype whose REPL to reuse or start
 ---@return integer|nil buf, integer|nil win
 local function get_or_start_repl(ft)
@@ -932,7 +957,7 @@ local function get_or_start_repl(ft)
     return buf, ensure_window_for_buf(buf)
   end
 
-  local repl_cmd = M.config.repls[ft]
+  local repl_cmd = repl_spec(ft)
   if not repl_cmd then
     vim.notify("No REPL configured for filetype: " .. ft, vim.log.levels.WARN)
     return
@@ -947,18 +972,20 @@ local function get_or_start_repl(ft)
   return buf, win
 end
 
---- Send text bracketed-paste wrapped, so multi-line blocks paste cleanly.
+--- Send text bracketed-paste wrapped, so multi-line blocks paste cleanly —
+--- unless the REPL's entry disables it, in which case the text is sent raw.
 ---@param repl_buf integer
 ---@param text string
 local function send_to_repl(repl_buf, text)
-  local start_bp = "\x1b[200~"
-  local end_bp = "\x1b[201~"
-
   if not text:match("\n$") then
     text = text .. "\n"
   end
 
-  term_send(repl_buf, start_bp .. text .. end_bp .. "\n")
+  local _, bracketed = repl_spec(vim.b[repl_buf].repl_ft)
+  if bracketed then
+    text = "\x1b[200~" .. text .. "\x1b[201~\n"
+  end
+  term_send(repl_buf, text)
 end
 
 --- Send the visual selection, or an explicit command range, to the
