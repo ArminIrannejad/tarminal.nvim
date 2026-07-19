@@ -87,6 +87,12 @@ previous screen is not pushed into scrollback; output simply appends at the
 prompt. Error highlighting and quickfix collection still track the new
 run's output; only the view pinning to the banner is skipped.
 
+Everything tarminal types at the shell prompt (run commands, `cd`s, REPL
+launches) is prefixed with a space, so it stays out of the shell history
+when the shell skips space-prefixed commands: `setopt HIST_IGNORE_SPACE`
+(zsh), `HISTCONTROL=ignorespace`/`ignoreboth` (bash); fish does this by
+default.
+
 A `repls` entry is the REPL command, or a table with `cmd` and
 `bracketed_paste = false` for REPLs that read raw stdin and would see the
 bracketed-paste escape sequences as input (the stock ocaml toplevel — the

@@ -216,8 +216,17 @@ local function term_send(buf, text)
   vim.fn.chansend(get_job_id(buf), text)
 end
 
+--- Type a command at the terminal's shell prompt. Prefixed with a space so
+--- shells configured to skip space-prefixed commands (bash ignorespace,
+--- zsh HIST_IGNORE_SPACE, fish's default) keep it out of their history.
+---@param buf integer terminal buffer
+---@param cmd string without the trailing newline
+local function term_send_command(buf, cmd)
+  term_send(buf, " " .. cmd .. "\n")
+end
+
 local function term_cd(buf, dir)
-  term_send(buf, "cd " .. vim.fn.shellescape(dir) .. "\n")
+  term_send_command(buf, "cd " .. vim.fn.shellescape(dir))
   vim.b[buf].term_cwd = dir
 end
 
@@ -947,18 +956,18 @@ function M.run()
       "printf '" .. ("\\n"):rep(scroll) .. "\\033[H'",
       "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
       "\n" .. runner_cmd,
-    }, " && ") .. "\n"
+    }, " && ")
   else
     -- no banner, no screen feed: output just appends, and the watcher
     -- scans whatever is printed below the current prompt line
     start_row = last_content_row(term_buf)
-    cmd = "cd " .. vim.fn.shellescape(ctx.dir) .. " && " .. runner_cmd .. "\n"
+    cmd = "cd " .. vim.fn.shellescape(ctx.dir) .. " && " .. runner_cmd
   end
 
   if M.config.park_on_error then
     watch_run_errors(term_buf, banner, start_row)
   end
-  term_send(term_buf, cmd)
+  term_send_command(term_buf, cmd)
   vim.b[term_buf].term_cwd = ctx.dir
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
@@ -1059,7 +1068,7 @@ local function get_or_start_repl(ft)
   local win
   buf, win = open_shell_term("tarminal://repl:" .. ft)
   term_cd(buf, dir)
-  term_send(buf, repl_cmd .. "\n")
+  term_send_command(buf, repl_cmd)
   vim.b[buf].repl_ft = ft
   return buf, win
 end

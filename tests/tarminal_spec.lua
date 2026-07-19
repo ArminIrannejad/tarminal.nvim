@@ -672,6 +672,36 @@ describe("tarminal", function()
     assert.is_true(stopped)
   end)
 
+  it("sends run commands with a history-suppressing leading space", function()
+    -- a "shell" that copies its stdin to a file, so the exact bytes tarminal
+    -- types at the prompt can be inspected
+    local out = vim.fn.tempname()
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ "exec cat > " .. out }, script)
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      park_on_error = false,
+      follow_run = "none",
+      shell = "sh " .. script,
+      runners = { lua = "true" },
+    })
+
+    tarminal.run()
+
+    local received = vim.wait(8000, function()
+      return vim.fn.filereadable(out) == 1 and (vim.fn.readfile(out)[1] or ""):find("cd", 1, true) ~= nil
+    end, 50)
+    local first_line = (vim.fn.readfile(out)[1] or "")
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    assert.is_true(received)
+    assert.equals(" cd '", first_line:sub(1, 5))
+  end)
+
   it("prints no banner when banner = false", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

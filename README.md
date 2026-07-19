@@ -154,6 +154,14 @@ at the prompt, like a hand-typed command. Error highlighting and quickfix
 collection still track the new run's output; only the view pinning to the
 banner is skipped.
 
+Everything tarminal types at the shell prompt (run commands, `cd`s, REPL
+launches) is prefixed with a space, so it stays out of your shell history if
+the shell is configured to skip space-prefixed commands: `setopt
+HIST_IGNORE_SPACE` in zsh, `HISTCONTROL=ignorespace` (or `ignoreboth` — the
+Debian/Ubuntu default) in bash; fish does this out of the box. Text sent
+*into* a REPL lands in the REPL's own history, where recalling it is usually
+what you want.
+
 A `repls` entry is the REPL command, or a table `{ cmd = ..., bracketed_paste
 = false }` for REPLs that read raw stdin and would see the bracketed-paste
 escape sequences as input — like the stock `ocaml` toplevel (the default
