@@ -103,12 +103,9 @@ require("tarminal").setup({
     ocaml = "ocaml",
     c = "cc",                          --   compiler: `cc foo.c -o foo && ./foo`
     rust = "rustc",
-    fortran = "gfortran",
   },
   compilers = {                         -- executable names recognized as compilers
-    "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",           -- C/C++
-    "icc", "icpc", "icx", "icpx", "nvcc",                           -- Intel, CUDA
-    "gfortran", "flang", "flang-new", "ifort", "ifx",               -- Fortran
+    "cc", "gcc", "clang", "g++", "clang++", "c++", 
     "rustc", "ghc", "swiftc", "gdc", "ocamlopt", "ocamlc",
   },
   repls = {                             -- filetype -> interactive REPL command
