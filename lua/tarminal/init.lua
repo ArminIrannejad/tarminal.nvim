@@ -71,11 +71,9 @@ local defaults = {
     c = "cc",
     rust = "rustc",
   },
-  -- Only compilers that accept `<source> -o <out>` and produce a directly
-  -- executable result belong here: the build command is composed exactly
-  -- that way. Compilers with other conventions (javac, scalac, luac, dmd,
-  -- `go build`, `zig build-exe`, ...) can't be listed — configure those as
-  -- a runner with an explicit `compile` flag, or run them directly.
+  -- only compilers invoked as `cmd <source> -o <out>` producing a runnable
+  -- binary belong here; others (javac, luac, go build, zig build-exe, ...)
+  -- need a runner with an explicit `compile` flag
   compilers = {
     "cc",
     "gcc",
@@ -104,8 +102,6 @@ local defaults = {
 
 M.config = vim.deepcopy(defaults)
 
---- Open the full-width terminal split, at the position `split_position`
---- asks for — with "auto", wherever the user's 'splitbelow' puts splits.
 local function terminal_split()
   local pos = M.config.split_position
   if pos == "auto" then
@@ -126,9 +122,8 @@ local function find_win_for_buf(buf)
   if not buf then
     return nil
   end
-  -- A terminal buffer is shared, but its split is local to the current tab.
-  -- Looking through every tab here would make toggle() close a split in a
-  -- different tab and make run() unexpectedly switch tabs.
+  -- current tab only: the buffer is shared, but toggling or jumping to a
+  -- split in another tab would be surprising
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if vim.api.nvim_win_get_buf(w) == buf then
       return w
@@ -154,10 +149,8 @@ local function is_terminal_alive(buf)
   return vim.fn.jobwait({ job }, 0)[1] == -1
 end
 
---- Find the terminal buffer tagged with `b:<var_name> == expected`,
---- deleting it instead if its job has exited.
----@param var_name string
----@param expected any
+--- Terminal buffer tagged with `b:<var_name> == expected`; one whose job
+--- has exited is deleted instead.
 ---@return integer|nil buf
 local function find_live_terminal(var_name, expected)
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -175,12 +168,11 @@ end
 ---@return integer buf, integer win
 local function open_shell_term(name)
   local win = terminal_split()
-  -- Spawn in a fresh buffer via jobstart/termopen instead of :terminal,
-  -- whose Ex parsing would expand % and # and split the command on |.
-  -- The command is passed as a list, so the shell is spawned *directly*:
-  -- a string would be wrapped in ['shell' -c "cmd"], and shells that fork
-  -- instead of exec-ing there (dash) would make jobpid point at the
-  -- wrapper — breaking the foreground-job check and /proc cwd resolution.
+  -- jobstart in a fresh buffer instead of :terminal, whose Ex parsing would
+  -- expand % and split on |. The command is passed as a list so the shell
+  -- is spawned directly: wrapped in ['shell', '-c', cmd], a forking shell
+  -- (dash) would make jobpid point at the wrapper, breaking the
+  -- foreground-job check and the /proc cwd lookup.
   vim.cmd("enew")
   local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
   if vim.fn.has("nvim-0.11") == 1 then
@@ -204,11 +196,8 @@ local function term_send(buf, text)
   vim.fn.chansend(get_job_id(buf), text)
 end
 
---- Type a command at the terminal's shell prompt. Prefixed with a space so
---- shells configured to skip space-prefixed commands (bash ignorespace,
---- zsh HIST_IGNORE_SPACE, fish's default) keep it out of their history.
----@param buf integer terminal buffer
----@param cmd string without the trailing newline
+--- Type a command at the shell prompt. The leading space keeps it out of
+--- shell history where ignorespace/HIST_IGNORE_SPACE is set.
 local function term_send_command(buf, cmd)
   term_send(buf, " " .. cmd .. "\n")
 end
@@ -219,13 +208,11 @@ local function term_cd(buf, dir)
 end
 
 --- Scroll the terminal to the bottom, then place focus according to `follow`.
----@param term_win integer
----@param code_win integer window we were editing in
 ---@param follow tarminal.Follow
 local function focus_after_send(term_win, code_win, follow)
   M._last_code_win = code_win
-  -- scroll without entering the window: with follow = "none", entering and
-  -- leaving would fire WinEnter/BufEnter autocmds twice and flicker
+  -- scroll without entering the window; entering and leaving would fire
+  -- WinEnter/BufEnter twice and flicker
   vim.api.nvim_win_call(term_win, function()
     vim.cmd("normal! G")
   end)
@@ -235,14 +222,10 @@ local function focus_after_send(term_win, code_win, follow)
   elseif follow == "focus" then
     vim.api.nvim_set_current_win(term_win)
   elseif vim.api.nvim_get_current_win() ~= code_win and vim.api.nvim_win_is_valid(code_win) then
-    -- opening the split moved focus into the terminal: return to the code
+    -- opening the split moved focus into the terminal: go back
     vim.api.nvim_set_current_win(code_win)
   end
 end
-
--- ============================================================================
--- Error locations: <CR> on an error line in the terminal jumps to it
--- ============================================================================
 
 --- Working directory of the terminal's shell (via /proc, falling back to the
 --- last directory we cd'd it into), so relative paths in errors resolve.
@@ -262,16 +245,11 @@ local function term_cwd(buf)
   return vim.b[buf].term_cwd
 end
 
---- Whether the terminal's shell currently has a foreground job. While a
---- command runs, its process group owns the pty; at the prompt the shell's
---- own group does. Compared via /proc/<pid>/stat, whose fields after the
---- comm are: state ppid pgrp session tty_nr tpgid ...
----
---- Some shells (dash) never take the foreground back at the prompt: tpgid
---- keeps pointing at the exited child's process group. A foreground group
---- with no living processes is therefore idle, not busy — probed with
---- kill(-pgid, 0).
----@param buf integer terminal buffer
+--- Whether the shell has a foreground job: while a command runs its process
+--- group owns the pty, at the prompt the shell's own group does. Read from
+--- /proc/<pid>/stat (fields after the comm: state ppid pgrp session tty_nr
+--- tpgid). Some shells (dash) leave tpgid on the exited child's group, so a
+--- foreground group with no living processes counts as idle.
 ---@return boolean|nil busy nil when it cannot be determined
 local function term_busy(buf)
   local job = get_job_id(buf)
@@ -329,12 +307,9 @@ local function resolve_file(path, term_buf)
   end
 end
 
---- Resolve a captured location candidate, allowing diagnostic tools to put a
---- prefix before the path. For example, sbt emits
---- `[error] /path/Main.scala:12:4`. Try the complete candidate first so paths
---- containing spaces keep working, then successively discard leading words.
----@param candidate string
----@param term_buf integer
+--- Resolve a location candidate that may carry a prefix before the path,
+--- like sbt's `[error] /path/Main.scala:12:4`: try the whole candidate
+--- first so paths with spaces keep working, then drop leading words.
 ---@return string|nil path, integer|nil offset byte offset of the path in `candidate`
 local function resolve_file_suffix(candidate, term_buf)
   local trimmed = vim.trim(candidate)
@@ -385,12 +360,9 @@ local function parse_error_line(line, term_buf)
   end
 end
 
---- Width the terminal wraps its output at. The window's *current* width is
---- the right answer: Neovim >= 0.10 re-wraps terminal content whenever the
---- window is resized, so buffer lines always follow the live width. (0.9
---- doesn't re-wrap — there, output printed before a resize can join wrong,
---- and a shrink truncates those lines anyway, losing the tail for good.)
----@param term_buf integer
+--- Width the terminal wraps its output at. The window's current width is
+--- right: nvim 0.10+ re-wraps terminal content on resize, so buffer lines
+--- follow the live width.
 ---@return integer
 local function pty_width(term_buf)
   local win = find_win_for_buf(term_buf)
@@ -415,10 +387,9 @@ local function logical_line_at(lines, row, width)
   return table.concat(lines, "", first, last), first, last
 end
 
---- Window a jump should land in: the code window we last ran from, else the
---- previous window, else any window showing a normal file buffer. Only
---- windows in the current tab qualify — the last code window may live in
---- another tab, and jumping there would switch tabs unexpectedly.
+--- Window a jump should land in: the code window we last ran from, else
+--- the previous window, else any file window — current tab only, so a jump
+--- never switches tabs.
 ---@return integer|nil win
 local function pick_code_win()
   local wins = {}
@@ -440,9 +411,8 @@ local function pick_code_win()
   end
 end
 
---- The error-navigation functions read the current buffer as terminal
---- output (and errors_to_quickfix may close its window), so refuse to
---- operate on anything that is not a terminal.
+--- Error navigation reads the current buffer as terminal output; refuse
+--- anything else.
 ---@return integer|nil term_buf
 local function current_term_buf()
   local buf = vim.api.nvim_get_current_buf()
@@ -495,14 +465,8 @@ local WATCH_TIMEOUT = 30000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
---- Highlight a span of a logical line (1-based inclusive byte range) across
---- the physical lines it wraps over.
----@param term_buf integer
----@param lines string[]
----@param first_row integer physical row the logical line starts on
----@param last_row integer physical row it ends on
----@param span_s integer
----@param span_e integer
+--- Highlight a byte range of a logical line across the physical lines it
+--- wraps over.
 local function highlight_span(term_buf, lines, first_row, last_row, span_s, span_e)
   local off = 0
   for row = first_row, last_row do
@@ -521,11 +485,8 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
 end
 
 --- Row of the last printed run banner. The token is assembled by printf at
---- run time (from a %d argument), so the echoed command never contains the
---- finished string; requiring the banner ruler at the start of the line
---- additionally guards against program output that quotes a banner.
----@param lines string[]
----@param banner_token string
+--- run time, so the echoed command never contains it; requiring ===== at
+--- the start of the line guards against output that quotes a banner.
 ---@return integer|nil row
 local function find_banner_row(lines, banner_token)
   for i = #lines, 1, -1 do
@@ -535,10 +496,8 @@ local function find_banner_row(lines, banner_token)
   end
 end
 
---- Last row holding text — before a run is sent, the prompt line — so a
---- bannerless run's output can be scanned from below it. (Terminal buffers
---- keep trailing blank screen lines, so the line count would overshoot.)
----@param buf integer terminal buffer
+--- Last non-blank row — the prompt line, before a run is sent. Terminal
+--- buffers keep trailing blank screen lines, so line count would overshoot.
 ---@return integer row 0 when the buffer is entirely blank
 local function last_content_row(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -550,18 +509,14 @@ local function last_content_row(buf)
   return 0
 end
 
---- Watch the terminal output printed after this run's banner (with banners
---- disabled: after `start_row`): pin the window view so the banner starts
---- at the top, highlight every error location and park the cursor on the
---- first one, so a single <CR> jumps to it. Output arrives async, so this
---- polls: it finishes once the run's output has been scanned and the shell
---- holds the pty foreground again (i.e. the run exited, whatever its
---- status), and gives up quietly after WATCH_TIMEOUT of terminal silence —
---- e.g. when the command never produced its banner, or in a shell without
---- job control, where completion cannot be observed.
----@param term_buf integer
----@param banner_token string|nil unique marker this run prints before its output
----@param start_row integer|nil row the run's output starts after, when bannerless
+--- Poll the output printed after this run's banner (bannerless: after
+--- `start_row`): pin the view to the banner, highlight error locations and
+--- park the cursor on the first one. Finishes once the output has settled
+--- and the shell holds the pty foreground again; gives up quietly after
+--- WATCH_TIMEOUT of silence (no banner ever appeared, or a shell without
+--- job control).
+---@param banner_token string|nil marker this run prints before its output
+---@param start_row integer|nil row the output starts after, when bannerless
 local function watch_run_errors(term_buf, banner_token, start_row)
   if M._watch_timer then
     M._watch_timer:stop()
@@ -570,9 +525,9 @@ local function watch_run_errors(term_buf, banner_token, start_row)
   end
 
   local elapsed = 0
-  local pinned = banner_token == nil -- without a banner there is nothing to pin to
+  local pinned = banner_token == nil -- no banner, nothing to pin to
   local parked = false
-  local seen = false -- this run's output has been scanned at least once
+  local seen = false -- run output scanned at least once
   local last_tick = vim.api.nvim_buf_get_changedtick(term_buf)
   local timer = uv.new_timer()
   M._watch_timer = timer
@@ -600,9 +555,8 @@ local function watch_run_errors(term_buf, banner_token, start_row)
       local tick = vim.api.nvim_buf_get_changedtick(term_buf)
       if tick == last_tick then
         elapsed = elapsed + WATCH_INTERVAL
-        -- the output settled and the shell holds the foreground again: the
-        -- run is over. (term_busy nil — no job control — never matches, so
-        -- there only prolonged silence gives up.)
+        -- output settled and the shell took the foreground back: run over
+        -- (busy nil = no job control; then only the silence timeout ends it)
         if elapsed > WATCH_TIMEOUT or (seen and term_busy(term_buf) == false) then
           stop()
         end
@@ -688,10 +642,8 @@ function M.prev_error()
   goto_error(-1)
 end
 
---- Collect the error locations from the last run (or the whole scrollback if
---- this terminal never ran anything) into the quickfix list. Whether the
---- terminal window is closed and quickfix opened afterwards is controlled by
---- `config.quickfix`.
+--- Collect the last run's error locations (or the whole scrollback if this
+--- terminal never ran anything) into quickfix; see `config.quickfix`.
 function M.errors_to_quickfix()
   local term_buf = current_term_buf()
   if not term_buf then
@@ -708,7 +660,7 @@ function M.errors_to_quickfix()
       start_row = banner_row + 1
     end
   elseif vim.b[term_buf].run_start_row then
-    -- bannerless run: scan below where the prompt was when it was sent
+    -- bannerless run: scan below where the prompt was
     start_row = vim.b[term_buf].run_start_row + 1
   end
 
@@ -748,10 +700,6 @@ function M.errors_to_quickfix()
   end
 end
 
--- ============================================================================
--- Shared shell terminal: toggled, reused by run()
--- ============================================================================
-
 local function get_or_create_shell_term()
   local buf = find_live_terminal("is_shell", true)
   if buf then
@@ -769,8 +717,7 @@ function M.toggle()
   local win = find_win_for_buf(buf)
   if win then
     if not pcall(vim.api.nvim_win_close, win, false) then
-      -- the terminal is the last window (E444): hide it by swapping in an
-      -- empty buffer instead of closing the window
+      -- last window (E444): swap in an empty buffer instead
       vim.api.nvim_win_call(win, function()
         vim.cmd("enew")
       end)
@@ -780,19 +727,16 @@ function M.toggle()
   end
 end
 
---- Send a command to the shared shell terminal with the full run
---- treatment: busy guard, banner (per `config.banner`), error watching
---- and focus handling.
+--- Send a command to the shared shell terminal with the full run treatment:
+--- busy guard, banner, error watching, focus handling.
 ---@param cmd string shell command to run
 ---@param dir string directory the command runs in
 local function execute_in_shell(cmd, dir)
   local code_win = vim.api.nvim_get_current_win()
 
-  -- If the previous command is still in the terminal's foreground, sending
-  -- now would type into that program's stdin instead of the shell. Show the
-  -- terminal so the user can see (and interrupt) what is running. Only a
-  -- pre-existing shell can be busy; a fresh one is skipped so its startup
-  -- files can't false-positive the check.
+  -- a busy foreground command would swallow the send as its stdin — show
+  -- the terminal instead so it can be interrupted. A fresh shell isn't
+  -- checked: its startup files could false-positive.
   local existing = find_live_terminal("is_shell", true)
   if existing and term_busy(existing) then
     ensure_window_for_buf(existing)
@@ -803,8 +747,8 @@ local function execute_in_shell(cmd, dir)
 
   local term_buf, term_win = get_or_create_shell_term()
 
-  -- The terminal rewrites screen lines in place, so highlights left over from
-  -- an earlier run can end up on this run's banner or output. Start clean.
+  -- the terminal rewrites screen lines in place; drop highlights left over
+  -- from earlier runs
   vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
 
   M._run_id = (M._run_id or 0) + 1
@@ -813,15 +757,10 @@ local function execute_in_shell(cmd, dir)
   if M.config.banner then
     banner = ("RUN[%d]"):format(M._run_id)
 
-    -- Feed the screen into scrollback with newlines before homing the
-    -- cursor: an ANSI scroll (or `clear`) erases the scrolled-out lines,
-    -- newline-driven scrolling preserves them, so previous runs stay
-    -- scrollable. The watcher pins the window view to this run's banner so
-    -- it still starts at the top.
-    --
-    -- The banner token is assembled by printf from a %d argument, so the
-    -- echoed command never contains the finished token and can't be
-    -- mistaken for a banner, however the echo wraps.
+    -- Push the screen into scrollback with newlines before homing the
+    -- cursor: unlike an ANSI scroll or `clear`, that keeps previous runs
+    -- scrollable; the watcher pins the view to the banner. The banner token
+    -- is assembled by printf so the echoed command never contains it.
     local scroll = vim.api.nvim_win_get_height(term_win)
     full = table.concat({
       "cd " .. vim.fn.shellescape(dir),
@@ -830,8 +769,7 @@ local function execute_in_shell(cmd, dir)
       "\n" .. cmd,
     }, " && ")
   else
-    -- no banner, no screen feed: output just appends, and the watcher
-    -- scans whatever is printed below the current prompt line
+    -- no banner, no screen feed: the watcher scans below the prompt line
     start_row = last_content_row(term_buf)
     full = "cd " .. vim.fn.shellescape(dir) .. " && " .. cmd
   end
@@ -853,11 +791,8 @@ end
 ---@field dir string
 ---@field ft string
 
---- Whether the runner's program is a known compiler. Matched against the
---- first word, ignoring a leading path and a trailing version suffix, so
---- "/usr/bin/clang-17 -Wall" matches "clang".
----@param runner string
----@return boolean
+--- Whether the runner's program is a known compiler: matched on the first
+--- word, ignoring path and version suffix ("/usr/bin/clang-17" is "clang").
 local function is_compiler(runner)
   local exe = runner:match("%S+") or runner
   exe = exe:match("[^/]+$") or exe
@@ -870,10 +805,7 @@ local function is_compiler(runner)
   return false
 end
 
---- Normalize a `runners` entry: a plain string is the command, with
---- compile-then-run inferred from its program name; a table carries the
---- command plus an explicit `compile` override (see tarminal.Runner).
----@param ft string
+--- Normalize a `runners` entry (see tarminal.Runner).
 ---@return string|nil cmd, boolean compile
 local function runner_spec(ft)
   local spec = M.config.runners[ft]
@@ -887,15 +819,11 @@ local function runner_spec(ft)
   return cmd, compile
 end
 
---- Build the shell command that runs a file: the runner with the file
---- appended (`python foo.py`). When the runner compiles (an explicit
---- `compile = true`, or a program listed in `config.compilers`), the file
---- is built first and the result is run (`cc foo.c -o foo && ./foo`);
---- `time_runs` times the run, not the build.
---- Timing requires a `time` binary — the shell keyword alone isn't relied
---- on, so the command works in any POSIX shell; without the binary the
---- prefix is skipped. An extensionless file compiles to `<name>.out` — its
---- stem *is* the filename, and `-o` would overwrite the source.
+--- Shell command that runs a file: `python foo.py`, or for a compiling
+--- runner `cc foo.c -o foo && ./foo` (only the binary is timed). `time` is
+--- prefixed only when a time binary exists, so the command works in any
+--- POSIX shell. An extensionless file compiles to `<name>.out` — its stem
+--- is the filename itself, and `-o` would overwrite the source.
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
@@ -917,10 +845,8 @@ local function build_runner_command(ctx)
   return time .. runner .. " " .. file
 end
 
---- Write `buf` if it has unsaved changes. A failure (readonly, missing
---- directory, ...) is reported, so a run doesn't silently use the stale
---- on-disk version.
----@param buf integer
+--- Write `buf` if modified; failures are reported so a run doesn't
+--- silently use the stale on-disk version.
 ---@return boolean ok
 local function update_buffer(buf)
   local ok, err = pcall(vim.api.nvim_buf_call, buf, function()
@@ -955,8 +881,7 @@ function M.run()
       vim.notify("Nothing to run from here", vim.log.levels.WARN)
       return
     end
-    -- a re-run executes the file from disk: save its buffer too if it is
-    -- loaded with edits made since the original run
+    -- a re-run executes from disk: save the source buffer if it has edits
     local src = vim.fn.bufnr(ctx.file)
     if src ~= -1 and not update_buffer(src) then
       return
@@ -972,16 +897,12 @@ function M.run()
   execute_in_shell(runner_cmd, ctx.dir)
 end
 
---- Run an arbitrary shell command in the shared terminal, like emacs'
---- M-x compile: `:Tarminal exec make test`, or without arguments to be
---- prompted — pre-filled with the previous command, so plain <CR> re-runs
---- it. Cmdline specials in the command are expanded against the current
---- buffer before sending: `%` (the file), `%:r`, `%:t`, `#`, `<cword>`, …
---- (see |cmdline-special|; use `%:S` when the path needs shell quoting).
---- The command runs from Neovim's cwd, so `%`'s relative path resolves.
---- From a non-file buffer (the terminal itself, quickfix, ...) a plain
---- `exec` re-runs the last command as it was expanded — the terminal's
---- buffer name must not be what `%` expands to.
+--- Run an arbitrary command in the shared terminal (emacs M-x compile).
+--- Without an argument: prompt, pre-filled with the previous command.
+--- Cmdline specials (|cmdline-special|: %, %:r, #, <cword>, ...) are
+--- expanded first, and the command runs from nvim's cwd so `%`'s relative
+--- path resolves. From a non-file buffer a bare exec re-runs the last
+--- command as expanded — `%` must not pick up the terminal's own name.
 ---@param arg string|table|nil command, :Tarminal callback data, or nil
 function M.exec(arg)
   local input
@@ -1008,7 +929,7 @@ function M.exec(arg)
     return
   end
 
-  -- like run(): the command presumably uses the file, so save it first
+  -- save the current file first, like run()
   if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" and not update_buffer(vim.api.nvim_get_current_buf()) then
     return
   end
@@ -1026,14 +947,9 @@ function M.exec(arg)
   execute_in_shell(cmd, M._last_exec_dir)
 end
 
--- ============================================================================
--- REPL: send visual selection or "cell"
--- ============================================================================
-
---- getpos() columns point at the *first* byte of a character; extend `col`
---- to that character's last byte (clamped to the line) so a multibyte
---- character at the end of a selection is not cut in half.
----@param line string
+--- getpos() columns point at the first byte of a character; extend `col`
+--- to its last byte (clamped) so a trailing multibyte char isn't cut in
+--- half.
 ---@param col integer 1-based byte column
 ---@return integer
 local function char_end_col(line, col)
@@ -1066,7 +982,7 @@ local function get_visual_selection(visual_mode)
     local left, right = math.min(col_start, col_end), math.max(col_start, col_end)
     local lines = vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false)
     for i, line in ipairs(lines) do
-      -- the block's byte columns can land mid-character on other lines
+      -- the block's byte columns can land mid-character on other rows
       local l = left
       if l >= 1 and l <= #line then
         l = l + vim.str_utf_start(line, l)
@@ -1089,9 +1005,7 @@ local function get_line_range(line1, line2)
   return table.concat(vim.api.nvim_buf_get_lines(0, line1 - 1, line2, false), "\n")
 end
 
---- Normalize a `repls` entry: a plain string is the REPL command with all
---- defaults; a table carries the command plus options (see tarminal.Repl).
----@param ft string
+--- Normalize a `repls` entry (see tarminal.Repl).
 ---@return string|nil cmd, boolean bracketed_paste
 local function repl_spec(ft)
   local spec = M.config.repls[ft]
@@ -1124,10 +1038,8 @@ local function get_or_start_repl(ft)
   return buf, win
 end
 
---- Send text bracketed-paste wrapped, so multi-line blocks paste cleanly —
---- unless the REPL's entry disables it, in which case the text is sent raw.
----@param repl_buf integer
----@param text string
+--- Send text bracketed-paste wrapped so multi-line blocks paste cleanly,
+--- unless the REPL's entry disables it (then it goes raw).
 local function send_to_repl(repl_buf, text)
   if not text:match("\n$") then
     text = text .. "\n"
@@ -1160,10 +1072,6 @@ function M.send_selection(command_opts)
   focus_after_send(repl_win, code_win, M.config.follow_repl)
 end
 
--- ============================================================================
--- Cells: blocks delimited by cell_marker lines
--- ============================================================================
-
 local function line_is_marker(s)
   return M.config.cell_marker ~= "" and vim.trim(s) == M.config.cell_marker
 end
@@ -1182,8 +1090,7 @@ local function get_current_cell_range()
     down = down + 1
   end
 
-  -- up/down stopped on the surrounding markers (or ran off the buffer):
-  -- the cell is what lies strictly between them
+  -- the cell is what lies strictly between the surrounding markers
   return up + 1, down - 1
 end
 
@@ -1216,20 +1123,14 @@ function M.send_cell()
   focus_after_send(repl_win, code_win, M.config.follow_repl)
 end
 
--- ============================================================================
--- Setup
--- ============================================================================
-
 --- Bold red for error locations, taking the red from the active colorscheme.
 local function define_error_highlight()
   local diag = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
   vim.api.nvim_set_hl(0, "TarminalError", { fg = diag.fg or "Red", bold = true })
 end
 
---- tarminal never creates keymaps: opts hold settings only. Map keys
---- yourself to :Tarminal subcommands or the functions in this module (see
---- the README's example setup; `FileType tarminal` fires for tarminal's own
---- terminal buffers, for buffer-local maps).
+--- Settings only — tarminal never creates keymaps; map keys yourself to
+--- the :Tarminal subcommands or the functions in this module.
 ---@param opts tarminal.Config|nil merged over the defaults in M.config
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
