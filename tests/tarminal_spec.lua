@@ -1,8 +1,16 @@
 describe("tarminal", function()
   local tarminal
 
-  local function get_upvalue(fn, wanted)
-    for i = 1, 20 do
+  -- Search `fn`'s upvalues for `wanted`, descending into function-valued
+  -- upvalues (locals extracted into helpers, like execute_in_shell, put
+  -- what they capture one level deeper).
+  local function find_upvalue(fn, wanted, seen)
+    if seen[fn] then
+      return nil
+    end
+    seen[fn] = true
+    local fns = {}
+    for i = 1, 40 do
       local name, value = debug.getupvalue(fn, i)
       if not name then
         break
@@ -10,8 +18,24 @@ describe("tarminal", function()
       if name == wanted then
         return value
       end
+      if type(value) == "function" then
+        fns[#fns + 1] = value
+      end
     end
-    error("missing upvalue: " .. wanted)
+    for _, f in ipairs(fns) do
+      local value = find_upvalue(f, wanted, seen)
+      if value ~= nil then
+        return value
+      end
+    end
+  end
+
+  local function get_upvalue(fn, wanted)
+    local value = find_upvalue(fn, wanted, {})
+    if value == nil then
+      error("missing upvalue: " .. wanted)
+    end
+    return value
   end
 
   -- Wait until run `id`'s banner is printed and the shell has taken the
@@ -700,6 +724,94 @@ describe("tarminal", function()
     vim.fn.delete(file)
     assert.is_true(received)
     assert.equals(" cd '", first_line:sub(1, 5))
+  end)
+
+  -- a "shell" that copies its stdin to `out`, so the exact command exec
+  -- sends can be inspected; returns the path of the capture file
+  local function stdin_capture_shell()
+    local out = vim.fn.tempname()
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ "exec cat > " .. out }, script)
+    return out, script
+  end
+
+  local function wait_capture(out, needle)
+    return vim.wait(8000, function()
+      return vim.fn.filereadable(out) == 1 and table.concat(vim.fn.readfile(out), "\n"):find(needle, 1, true) ~= nil
+    end, 50)
+  end
+
+  it("exec expands % against the current file", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
+
+    -- the shape the :Tarminal command dispatcher passes
+    tarminal.exec({ fargs = { "exec", "echo", "%" } })
+
+    local received = wait_capture(out, "echo " .. file)
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    assert.is_true(received)
+  end)
+
+  it("exec prompts pre-filled with the last command", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
+
+    tarminal.exec("echo first_exec")
+    assert.is_true(wait_capture(out, "echo first_exec"))
+
+    local seen_default
+    local orig = vim.ui.input
+    vim.ui.input = function(opts, on_confirm) ---@diagnostic disable-line: duplicate-set-field
+      seen_default = opts.default
+      on_confirm(nil) -- cancel
+    end
+    tarminal.exec()
+    vim.ui.input = orig
+
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    assert.equals("echo first_exec", seen_default)
+  end)
+
+  it("exec from a non-file buffer re-runs the last expanded command", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
+
+    tarminal.exec("echo ran %")
+    local expanded = "echo ran " .. file
+    assert.is_true(wait_capture(out, expanded))
+
+    -- from the terminal window, a bare exec must resend the expanded
+    -- command instead of re-expanding % against the terminal buffer
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      if vim.bo[vim.api.nvim_win_get_buf(win)].filetype == "tarminal" then
+        vim.api.nvim_set_current_win(win)
+      end
+    end
+    tarminal.exec()
+
+    local resent = vim.wait(8000, function()
+      local text = table.concat(vim.fn.readfile(out), "\n")
+      local _, count = text:gsub(vim.pesc(expanded), "")
+      return count >= 2
+    end, 50)
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    assert.is_true(resent)
   end)
 
   it("prints no banner when banner = false", function()

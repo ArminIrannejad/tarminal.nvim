@@ -115,6 +115,15 @@ never touches terminal buffers it did not create.
 :Tarminal [toggle]        Show/hide the shared shell terminal.
 :Tarminal run             Save and run the current file. From a non-file
                           buffer, re-run the last run.
+:Tarminal exec {cmd}      Run {cmd} in the shared terminal, like emacs'
+                          M-x compile. Without {cmd}: prompt, pre-filled
+                          with the last command (<CR> re-runs). Cmdline
+                          specials are expanded first — `%`, `%:r`, `#`,
+                          `<cword>`, ... (|cmdline-special|; `%:S` shell-
+                          quotes) — so `exec make %:r` needs no paths.
+                          From a non-file buffer, a bare exec re-runs the
+                          last command as it was expanded. Output gets the
+                          same banner and error navigation as a run.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
                           Send the selected line range to the REPL. The visual

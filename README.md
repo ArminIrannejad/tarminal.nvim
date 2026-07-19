@@ -15,6 +15,10 @@ cells, and clickable error locations in terminal output.
   separating runs (`banner = false` turns it off). From a non-file buffer
   it re-runs the last run. Compiler commands are recognized automatically,
   so `c = "clang -Wall"` compiles the file and runs the resulting binary.
+- **Run any command** — `:Tarminal exec` works like emacs' `M-x compile`:
+  prompts for a command (pre-filled with the last one), expands `%`-style
+  cmdline specials, and gives the output the same banner and clickable
+  errors as a run.
 - **Error navigation** — file locations in the output (`foo.c:12:5:`,
   `File "foo.py", line 12`, …) are highlighted; jump to the location under
   the cursor (wrapped long lines are handled), move between locations, or
@@ -57,6 +61,14 @@ you want yourself (see the [example setup](#example-setup) below).
 - `:Tarminal` / `:Tarminal toggle` — show/hide the shared shell terminal
 - `:Tarminal run` — save and run the current file (from a non-file buffer:
   re-run the last run)
+- `:Tarminal exec {cmd}` — run an arbitrary command in the terminal, emacs
+  `M-x compile` style. Without `{cmd}` it prompts, pre-filled with the last
+  command, so plain Enter re-runs it. Cmdline specials are expanded first:
+  `%` is the current file, and `%:r`, `%:t`, `#`, `<cword>`, … all work
+  (`:h cmdline-special`; use `%:S` if the path needs shell quoting) — so
+  `:Tarminal exec make %:r` or `gcc -O2 % -o %:r && ./%:r` without typing
+  paths. From a non-file buffer a bare `exec` re-runs the last command
+  exactly as it was expanded.
 - `:Tarminal send_cell` — send the cell around the cursor to the REPL
 - `:'<,'>Tarminal send_selection` — send the selected line range to the REPL
   (the optional visual-mode keymap preserves exact character/block selections)
@@ -189,6 +201,7 @@ filetype (which fires for every terminal the plugin creates):
   keys = {
     { "<leader>ts", function() require("tarminal").toggle() end, desc = "Toggle shell terminal" },
     { "<leader>ru", function() require("tarminal").run() end, desc = "Run current file in terminal" },
+    { "<leader>re", function() require("tarminal").exec() end, desc = "Run command in terminal (prompts)" },
     { "<leader>ri", function() require("tarminal").send_selection() end, mode = "x", desc = "Send selection to REPL" },
     { "<leader>rc", function() require("tarminal").send_cell() end, desc = "Send cell to REPL" },
   },

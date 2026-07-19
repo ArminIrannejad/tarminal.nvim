@@ -17,6 +17,7 @@ end
 local subcommands = {
   "toggle",
   "run",
+  "exec",
   "send_cell",
   "send_selection",
   "jump_to_error",
@@ -33,9 +34,14 @@ vim.api.nvim_create_user_command("Tarminal", function(cmd)
   end
   require("tarminal")[sub](cmd)
 end, {
-  nargs = "?",
+  nargs = "*",
   range = true,
-  complete = function(arglead)
+  complete = function(arglead, cmdline)
+    -- only the first argument is a subcommand; what follows (an exec
+    -- command line) is not completed
+    if cmdline:match("Tarminal!?%s+%S+%s") then
+      return {}
+    end
     return vim.tbl_filter(function(s)
       return vim.startswith(s, arglead)
     end, subcommands)

@@ -780,6 +780,73 @@ function M.toggle()
   end
 end
 
+--- Send a command to the shared shell terminal with the full run
+--- treatment: busy guard, banner (per `config.banner`), error watching
+--- and focus handling.
+---@param cmd string shell command to run
+---@param dir string directory the command runs in
+local function execute_in_shell(cmd, dir)
+  local code_win = vim.api.nvim_get_current_win()
+
+  -- If the previous command is still in the terminal's foreground, sending
+  -- now would type into that program's stdin instead of the shell. Show the
+  -- terminal so the user can see (and interrupt) what is running. Only a
+  -- pre-existing shell can be busy; a fresh one is skipped so its startup
+  -- files can't false-positive the check.
+  local existing = find_live_terminal("is_shell", true)
+  if existing and term_busy(existing) then
+    ensure_window_for_buf(existing)
+    vim.api.nvim_set_current_win(code_win)
+    vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
+    return
+  end
+
+  local term_buf, term_win = get_or_create_shell_term()
+
+  -- The terminal rewrites screen lines in place, so highlights left over from
+  -- an earlier run can end up on this run's banner or output. Start clean.
+  vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
+
+  M._run_id = (M._run_id or 0) + 1
+
+  local banner, start_row, full
+  if M.config.banner then
+    banner = ("RUN[%d]"):format(M._run_id)
+
+    -- Feed the screen into scrollback with newlines before homing the
+    -- cursor: an ANSI scroll (or `clear`) erases the scrolled-out lines,
+    -- newline-driven scrolling preserves them, so previous runs stay
+    -- scrollable. The watcher pins the window view to this run's banner so
+    -- it still starts at the top.
+    --
+    -- The banner token is assembled by printf from a %d argument, so the
+    -- echoed command never contains the finished token and can't be
+    -- mistaken for a banner, however the echo wraps.
+    local scroll = vim.api.nvim_win_get_height(term_win)
+    full = table.concat({
+      "cd " .. vim.fn.shellescape(dir),
+      "printf '" .. ("\\n"):rep(scroll) .. "\\033[H'",
+      "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
+      "\n" .. cmd,
+    }, " && ")
+  else
+    -- no banner, no screen feed: output just appends, and the watcher
+    -- scans whatever is printed below the current prompt line
+    start_row = last_content_row(term_buf)
+    full = "cd " .. vim.fn.shellescape(dir) .. " && " .. cmd
+  end
+
+  if M.config.park_on_error then
+    watch_run_errors(term_buf, banner, start_row)
+  end
+  term_send_command(term_buf, full)
+  vim.b[term_buf].term_cwd = dir
+  vim.b[term_buf].run_banner = banner
+  vim.b[term_buf].run_start_row = start_row
+
+  focus_after_send(term_win, code_win, M.config.follow_run)
+end
+
 ---@class tarminal.RunContext
 ---@field file string
 ---@field stem string
@@ -902,65 +969,61 @@ function M.run()
     return
   end
 
-  local code_win = vim.api.nvim_get_current_win()
+  execute_in_shell(runner_cmd, ctx.dir)
+end
 
-  -- If the previous command is still in the terminal's foreground, sending
-  -- now would type into that program's stdin instead of the shell. Show the
-  -- terminal so the user can see (and interrupt) what is running. Only a
-  -- pre-existing shell can be busy; a fresh one is skipped so its startup
-  -- files can't false-positive the check.
-  local existing = find_live_terminal("is_shell", true)
-  if existing and term_busy(existing) then
-    ensure_window_for_buf(existing)
-    vim.api.nvim_set_current_win(code_win)
-    vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
+--- Run an arbitrary shell command in the shared terminal, like emacs'
+--- M-x compile: `:Tarminal exec make test`, or without arguments to be
+--- prompted — pre-filled with the previous command, so plain <CR> re-runs
+--- it. Cmdline specials in the command are expanded against the current
+--- buffer before sending: `%` (the file), `%:r`, `%:t`, `#`, `<cword>`, …
+--- (see |cmdline-special|; use `%:S` when the path needs shell quoting).
+--- The command runs from Neovim's cwd, so `%`'s relative path resolves.
+--- From a non-file buffer (the terminal itself, quickfix, ...) a plain
+--- `exec` re-runs the last command as it was expanded — the terminal's
+--- buffer name must not be what `%` expands to.
+---@param arg string|table|nil command, :Tarminal callback data, or nil
+function M.exec(arg)
+  local input
+  if type(arg) == "string" then
+    input = arg
+  elseif type(arg) == "table" then
+    input = table.concat(vim.list_slice(arg.fargs or {}, 2), " ")
+  end
+
+  if not input or input == "" then
+    if vim.bo.buftype ~= "" then
+      if M._last_exec_cmd then
+        execute_in_shell(M._last_exec_cmd, M._last_exec_dir)
+      else
+        vim.notify("No previous exec command", vim.log.levels.WARN)
+      end
+      return
+    end
+    vim.ui.input({ prompt = "exec: ", default = M._last_exec_input, completion = "shellcmd" }, function(text)
+      if text and text ~= "" then
+        M.exec(text)
+      end
+    end)
     return
   end
 
-  local term_buf, term_win = get_or_create_shell_term()
-
-  -- The terminal rewrites screen lines in place, so highlights left over from
-  -- an earlier run can end up on this run's banner or output. Start clean.
-  vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
-
-  M._run_id = (M._run_id or 0) + 1
-
-  local banner, start_row, cmd
-  if M.config.banner then
-    banner = ("RUN[%d]"):format(M._run_id)
-
-    -- Feed the screen into scrollback with newlines before homing the
-    -- cursor: an ANSI scroll (or `clear`) erases the scrolled-out lines,
-    -- newline-driven scrolling preserves them, so previous runs stay
-    -- scrollable. The watcher pins the window view to this run's banner so
-    -- it still starts at the top.
-    --
-    -- The banner token is assembled by printf from a %d argument, so the
-    -- echoed command never contains the finished token and can't be
-    -- mistaken for a banner, however the echo wraps.
-    local scroll = vim.api.nvim_win_get_height(term_win)
-    cmd = table.concat({
-      "cd " .. vim.fn.shellescape(ctx.dir),
-      "printf '" .. ("\\n"):rep(scroll) .. "\\033[H'",
-      "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
-      "\n" .. runner_cmd,
-    }, " && ")
-  else
-    -- no banner, no screen feed: output just appends, and the watcher
-    -- scans whatever is printed below the current prompt line
-    start_row = last_content_row(term_buf)
-    cmd = "cd " .. vim.fn.shellescape(ctx.dir) .. " && " .. runner_cmd
+  -- like run(): the command presumably uses the file, so save it first
+  if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" and not update_buffer(vim.api.nvim_get_current_buf()) then
+    return
   end
 
-  if M.config.park_on_error then
-    watch_run_errors(term_buf, banner, start_row)
+  local ok, cmd = pcall(vim.fn.expandcmd, input)
+  if not ok then
+    cmd = tostring(cmd)
+    vim.notify(cmd:match("(E%d+:[^\n]*)") or cmd, vim.log.levels.ERROR)
+    return
   end
-  term_send_command(term_buf, cmd)
-  vim.b[term_buf].term_cwd = ctx.dir
-  vim.b[term_buf].run_banner = banner
-  vim.b[term_buf].run_start_row = start_row
 
-  focus_after_send(term_win, code_win, M.config.follow_run)
+  M._last_exec_input = input
+  M._last_exec_cmd = cmd
+  M._last_exec_dir = vim.fn.getcwd()
+  execute_in_shell(cmd, M._last_exec_dir)
 end
 
 -- ============================================================================
