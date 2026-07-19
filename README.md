@@ -109,7 +109,7 @@ require("tarminal").setup({
     python = "ipython",
     lua = "lua -i",
     haskell = "ghci",
-    ocaml = "ocaml",
+    ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   quickfix = {                          -- errors_to_quickfix behavior
     open = true,                        --   open the quickfix window after collecting
@@ -129,6 +129,11 @@ With `time_runs` enabled, runs are prefixed with `time` — but only when a
 `time` binary is installed, so the command works in any POSIX shell instead
 of relying on a shell keyword; without one, timing is silently skipped. For
 compiled files only the produced binary is timed, not compilation.
+
+A `repls` entry is the REPL command, or a table `{ cmd = ..., bracketed_paste
+= false }` for REPLs that read raw stdin and would see the bracketed-paste
+escape sequences as input — like the stock `ocaml` toplevel (the default
+entry). With `bracketed_paste = false` the text is sent unwrapped.
 
 The `shell` command is split on whitespace and spawned directly, without a
 wrapper shell — any POSIX-compatible shell works. (With a shell that lacks

@@ -46,7 +46,11 @@ Call the setup function, optionally passing overrides for the defaults: >lua
         "cc", "gcc", "clang", "g++", "clang++", "c++", "tcc",
         "gfortran", "rustc", "ghc",
       },
-      repls = { python = "ipython", lua = "lua -i", ... },
+      repls = {
+        python = "ipython",
+        ocaml = { cmd = "ocaml", bracketed_paste = false },
+        ...
+      },
       quickfix = {
         open = true,            -- open quickfix after errors_to_quickfix
         close_terminal = true,  -- close the terminal window as well
@@ -69,6 +73,11 @@ compatible compiler names to `compilers` as needed. With `time_runs = true`
 (the default), runs are timed only when a `time` binary is installed (the
 shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
+
+A `repls` entry is the REPL command, or a table with `cmd` and
+`bracketed_paste = false` for REPLs that read raw stdin and would see the
+bracketed-paste escape sequences as input (the stock ocaml toplevel — the
+default entry). With bracketed paste disabled the text is sent unwrapped.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
