@@ -68,7 +68,7 @@ you want yourself (see the [example setup](#example-setup) below).
   (`:h cmdline-special`; use `%:S` if the path needs shell quoting) — so
   `:Tarminal exec make %:r` or `gcc -O2 % -o %:r && ./%:r` without typing
   paths. From a non-file buffer a bare `exec` re-runs the last command
-  exactly as it was expanded.
+  exactly as it was expanded, and prompts if nothing has been run yet.
 - `:Tarminal send_cell` — send the cell around the cursor to the REPL
 - `:'<,'>Tarminal send_selection` — send the selected line range to the REPL
   (the optional visual-mode keymap preserves exact character/block selections)

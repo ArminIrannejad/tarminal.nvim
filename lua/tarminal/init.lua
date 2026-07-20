@@ -908,7 +908,8 @@ end
 --- Cmdline specials (|cmdline-special|: %, %:r, #, <cword>, ...) are
 --- expanded first, and the command runs from nvim's cwd so `%`'s relative
 --- path resolves. From a non-file buffer a bare exec re-runs the last
---- command as expanded — `%` must not pick up the terminal's own name.
+--- command as expanded — `%` must not pick up the terminal's own name —
+--- falling back to the prompt when no command has been run yet.
 ---@param arg string|table|nil command, :Tarminal callback data, or nil
 function M.exec(arg)
   local input
@@ -919,12 +920,13 @@ function M.exec(arg)
   end
 
   if not input or input == "" then
-    if vim.bo.buftype ~= "" then
-      if M._last_exec_cmd then
-        execute_in_shell(M._last_exec_cmd, M._last_exec_dir)
-      else
-        vim.notify("No previous exec command", vim.log.levels.WARN)
-      end
+    -- from a non-file buffer a bare exec re-runs, if there is anything to
+    -- re-run; otherwise fall through to the prompt rather than dead-end.
+    -- Cmdline specials typed at that prompt expand against the non-file
+    -- buffer (`%` is the terminal's own name), so they are of little use
+    -- there — but a prompt still beats refusing to do anything.
+    if vim.bo.buftype ~= "" and M._last_exec_cmd then
+      execute_in_shell(M._last_exec_cmd, M._last_exec_dir)
       return
     end
     vim.ui.input({ prompt = "exec: ", default = M._last_exec_input, completion = "shellcmd" }, function(text)
