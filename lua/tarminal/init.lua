@@ -22,6 +22,7 @@ local uv = vim.uv or vim.loop
 ---@field shell string
 ---@field follow_run tarminal.Follow
 ---@field follow_repl tarminal.Follow
+---@field autosave boolean write the buffer before running or exec'ing it; false runs whatever is on disk
 ---@field park_on_error boolean after a run, highlight error locations and park the cursor on the first one
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a `time` binary is installed (for compiled files: the produced binary)
@@ -56,6 +57,7 @@ local defaults = {
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",
   follow_repl = "none",
+  autosave = true,
   park_on_error = true,
   cell_marker = "# COMMAND ----------",
   time_runs = true,
@@ -846,9 +848,13 @@ local function build_runner_command(ctx)
 end
 
 --- Write `buf` if modified; failures are reported so a run doesn't
---- silently use the stale on-disk version.
+--- silently use the stale on-disk version. With `autosave` off nothing is
+--- written and the run proceeds against whatever is on disk.
 ---@return boolean ok
 local function update_buffer(buf)
+  if not M.config.autosave then
+    return true
+  end
   local ok, err = pcall(vim.api.nvim_buf_call, buf, function()
     vim.cmd("silent update")
   end)

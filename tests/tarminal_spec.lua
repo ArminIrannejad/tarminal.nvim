@@ -600,6 +600,47 @@ describe("tarminal", function()
     assert.is_true(saved)
   end)
 
+  it("runs without saving when autosave is off", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ autosave = false, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    local src = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(src, -1, -1, false, { "print('edited')" })
+    local before = tarminal._run_id
+
+    tarminal.run()
+
+    local still_modified = vim.bo[src].modified
+    local ran = tarminal._run_id == before + 1
+    vim.fn.delete(file)
+    -- the run goes through against the on-disk version, buffer untouched
+    assert.is_true(ran)
+    assert.is_true(still_modified)
+  end)
+
+  it("does not abort an unwritable run when autosave is off", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ autosave = false, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    -- the readonly buffer that aborts the run with autosave on is never
+    -- written here, so there is nothing to fail on
+    vim.api.nvim_buf_set_lines(0, -1, -1, false, { "print('edited')" })
+    vim.bo.readonly = true
+    local before = tarminal._run_id
+
+    tarminal.run()
+
+    vim.bo.readonly = false
+    vim.fn.delete(file)
+    assert.equals(before + 1, tarminal._run_id)
+  end)
+
   it("refuses to run while the terminal is busy with a command", function()
     -- foreground-job detection needs a shell with job control (a plain
     -- POSIX sh runs children in its own process group, where the busy

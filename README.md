@@ -101,6 +101,7 @@ require("tarminal").setup({
   shell = vim.env.SHELL or "/bin/bash", -- shell for the shared terminal
   follow_run = "focus",                 -- focus after a run: "none" | "focus" | "insert"
   follow_repl = "none",                 -- focus after sending to a REPL
+  autosave = true,                      -- write the buffer before a run/exec
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   cell_marker = "# COMMAND ----------", -- line that delimits REPL cells
   time_runs = true,                     -- `time` the run (for compiled files: the binary)
@@ -156,6 +157,11 @@ With `time_runs` enabled, runs are prefixed with `time` — but only when a
 `time` binary is installed, so the command works in any POSIX shell instead
 of relying on a shell keyword; without one, timing is silently skipped. For
 compiled files only the produced binary is timed, not compilation.
+
+With `autosave = false` tarminal never writes for you: a run or exec uses
+whatever is currently on disk, so unsaved edits won't be picked up. This
+covers all three save points — running the current file, re-running the last
+file from a non-file buffer, and `exec` from a file buffer.
 
 With `banner = false` a run prints nothing extra: no banner line, and the
 previous screen is not pushed into scrollback first — output simply appends
