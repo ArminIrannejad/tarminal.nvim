@@ -913,12 +913,10 @@ function M.run()
 end
 
 --- Run an arbitrary command in the shared terminal (emacs M-x compile).
---- Without an argument: prompt, pre-filled with the previous command.
---- Cmdline specials (|cmdline-special|: %, %:r, #, <cword>, ...) are
---- expanded first, and the command runs from nvim's cwd so `%`'s relative
---- path resolves. From a non-file buffer a bare exec re-runs the last
---- command as expanded — `%` must not pick up the terminal's own name —
---- falling back to the prompt when no command has been run yet.
+--- Without an argument: always prompt, pre-filled with the previously
+--- expanded command (empty on the first run). Cmdline specials
+--- (|cmdline-special|: %, %:r, #, <cword>, ...) are expanded first, and
+--- the command runs from nvim's cwd so `%`'s relative path resolves.
 ---@param arg string|table|nil command, :Tarminal callback data, or nil
 function M.exec(arg)
   local input
@@ -929,16 +927,13 @@ function M.exec(arg)
   end
 
   if not input or input == "" then
-    -- from a non-file buffer a bare exec re-runs, if there is anything to
-    -- re-run; otherwise fall through to the prompt rather than dead-end.
-    -- Cmdline specials typed at that prompt expand against the non-file
-    -- buffer (`%` is the terminal's own name), so they are of little use
-    -- there — but a prompt still beats refusing to do anything.
-    if vim.bo.buftype ~= "" and M._last_exec_cmd then
-      execute_in_shell(M._last_exec_cmd, M._last_exec_dir)
-      return
-    end
-    vim.ui.input({ prompt = "exec: ", default = M._last_exec_input, completion = "shellcmd" }, function(text)
+    -- always prompt on a bare exec. Pre-fill with the previously expanded
+    -- command rather than the raw input: the expanded form is a concrete
+    -- shell command, so pressing enter re-runs it unchanged from any
+    -- buffer. (Defaulting to the raw input would re-expand cmdline
+    -- specials like `%` against the current buffer — the terminal's own
+    -- name from a non-file buffer — silently running the wrong command.)
+    vim.ui.input({ prompt = "exec: ", default = M._last_exec_cmd, completion = "shellcmd" }, function(text)
       if text and text ~= "" then
         M.exec(text)
       end
@@ -958,7 +953,6 @@ function M.exec(arg)
     return
   end
 
-  M._last_exec_input = input
   M._last_exec_cmd = cmd
   M._last_exec_dir = vim.fn.getcwd()
   execute_in_shell(cmd, M._last_exec_dir)
@@ -1140,7 +1134,6 @@ function M.send_cell()
   focus_after_send(repl_win, code_win, M.config.follow_repl)
 end
 
---- Bold red for error locations, taking the red from the active colorscheme.
 local function define_error_highlight()
   local diag = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
   vim.api.nvim_set_hl(0, "TarminalError", { fg = diag.fg or "Red", bold = true })
