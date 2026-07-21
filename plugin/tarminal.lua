@@ -1,7 +1,3 @@
--- Entry point loaded automatically by Neovim at startup.
--- Keep this file light: only guards and commands.
--- The implementation lives in lua/tarminal/ and is loaded lazily via require.
-
 if vim.g.loaded_tarminal then
   return
 end
@@ -12,8 +8,6 @@ if vim.fn.has("nvim-0.9") == 0 then
   return
 end
 
--- Every plugin action, so users can drive tarminal entirely through
--- :Tarminal without any keymaps configured.
 local subcommands = {
   "toggle",
   "run",
@@ -37,8 +31,6 @@ end, {
   nargs = "*",
   range = true,
   complete = function(arglead, cmdline)
-    -- only the first argument is a subcommand; what follows (an exec
-    -- command line) is not completed
     if cmdline:match("Tarminal!?%s+%S+%s") then
       return {}
     end

@@ -184,6 +184,24 @@ describe("tarminal", function()
     assert.equals("clang -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
+  it("appends a runner's args after the file", function()
+    tarminal.setup({ time_runs = false })
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    -- the bundled odin runner: `odin run <file> -file`
+    local ctx = { file = "/tmp/example.odin", stem = "example", dir = "/tmp", ft = "odin" }
+    assert.equals("odin run '/tmp/example.odin' -file", build(ctx))
+  end)
+
+  it("places args after the source in a compiling runner", function()
+    tarminal.setup({
+      time_runs = false,
+      runners = { c = { cmd = "cc", args = "-lm", compile = true } },
+    })
+    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
+    assert.equals("cc '/tmp/example.c' -lm -o 'example' && ./'example'", build(ctx))
+  end)
+
   it("recognizes compiler paths and versioned compiler names", function()
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }

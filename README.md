@@ -116,6 +116,7 @@ require("tarminal").setup({
     ocaml = "ocaml",
     c = "cc",                          --   compiler: `cc foo.c -o foo && ./foo`
     rust = "rustc",
+    odin = { cmd = "odin run", args = "-file" }, -- `odin run foo.odin -file`
   },
   compilers = {                         -- executable names recognized as compilers
     "cc", "gcc", "clang", "g++", "clang++", "c++", 
@@ -153,6 +154,14 @@ runners = {
 
 With `compile` unset (or a plain string entry), compile-then-run is inferred
 from the command's program name via `compilers` as above.
+
+A table entry can also carry `args`, appended *after* the file, for tools that
+require `<cmd> <file> <flag>` order rather than accepting the file last. This is
+how the bundled Odin runner works — `{ cmd = "odin run", args = "-file" }`
+produces `odin run foo.odin -file`, since Odin reads a bare path as a package
+directory and needs `-file` (which must follow the path) to run a single source
+file. Odin isn't in `compilers` because `odin run` builds and runs in one step
+and uses `-out:`, not `-o`.
 With `time_runs` enabled, runs are prefixed with `time` — but only when a
 `time` binary is installed, so the command works in any POSIX shell instead
 of relying on a shell keyword; without one, timing is silently skipped. For

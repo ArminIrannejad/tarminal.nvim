@@ -44,6 +44,9 @@ local uv = vim.uv or vim.loop
 ---@field compile boolean|nil true: build with `-o` first, then run the
 ---binary (for compilers not recognized by name); false: never compile,
 ---run the file with the command directly
+---@field args string|nil flags appended *after* the file, for tools that
+---require `<cmd> <file> <flag>` order — e.g. `odin run foo.odin -file`,
+---where the source must come before `-file`
 
 --- A `repls` entry with options; a plain command string means all defaults.
 ---@class tarminal.Repl
@@ -72,6 +75,9 @@ local defaults = {
     ocaml = "ocaml",
     c = "cc",
     rust = "rustc",
+    -- `odin run` compiles and runs in one step (so it is not a `-o`
+    -- compiler); a single source file needs a trailing `-file`
+    odin = { cmd = "odin run", args = "-file" },
   },
   -- only compilers invoked as `cmd <source> -o <out>` producing a runnable
   -- binary belong here; others (javac, luac, go build, zig build-exe, ...)
@@ -808,32 +814,35 @@ local function is_compiler(runner)
 end
 
 --- Normalize a `runners` entry (see tarminal.Runner).
----@return string|nil cmd, boolean compile
+---@return string|nil cmd, boolean compile, string|nil args
 local function runner_spec(ft)
   local spec = M.config.runners[ft]
-  local cmd, compile = spec, nil
+  local cmd, compile, args = spec, nil, nil
   if type(spec) == "table" then
-    cmd, compile = spec.cmd, spec.compile
+    cmd, compile, args = spec.cmd, spec.compile, spec.args
   end
   if compile == nil then
     compile = cmd ~= nil and is_compiler(cmd)
   end
-  return cmd, compile
+  return cmd, compile, args
 end
 
 --- Shell command that runs a file: `python foo.py`, or for a compiling
 --- runner `cc foo.c -o foo && ./foo` (only the binary is timed). `time` is
 --- prefixed only when a time binary exists, so the command works in any
 --- POSIX shell. An extensionless file compiles to `<name>.out` — its stem
---- is the filename itself, and `-o` would overwrite the source.
+--- is the filename itself, and `-o` would overwrite the source. A runner's
+--- `args` are appended right after the source in either form, for tools
+--- that demand `<cmd> <file> <flag>` order (`odin run foo.odin -file`).
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
-  local runner, compile = runner_spec(ctx.ft)
+  local runner, compile, args = runner_spec(ctx.ft)
   if not runner then
     return
   end
 
+  local suffix = (args and args ~= "") and (" " .. args) or ""
   local time = M.config.time_runs and vim.fn.executable("time") == 1 and "time " or ""
   local file = vim.fn.shellescape(ctx.file)
   if compile then
@@ -842,9 +851,9 @@ local function build_runner_command(ctx)
       stem = stem .. ".out"
     end
     local out = vim.fn.shellescape(stem)
-    return ("%s %s -o %s && %s./%s"):format(runner, file, out, time, out)
+    return ("%s %s%s -o %s && %s./%s"):format(runner, file, suffix, out, time, out)
   end
-  return time .. runner .. " " .. file
+  return time .. runner .. " " .. file .. suffix
 end
 
 --- Write `buf` if modified; failures are reported so a run doesn't
