@@ -998,15 +998,32 @@ local function get_visual_selection(visual_mode)
   end
 
   if visual_mode == "\22" then
-    local left, right = math.min(col_start, col_end), math.max(col_start, col_end)
+    -- a visual block is a *screen-column* rectangle, but the '< '> marks
+    -- store byte columns; with tabs or wide characters a byte column maps
+    -- to a different screen column on each row. Convert the corners to
+    -- screen columns and cut every row at the same columns. Everything is
+    -- derived from strdisplaywidth, so this does not depend on virtcol2col,
+    -- whose byte-offset semantics differ across Neovim versions.
     local lines = vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false)
+    local c1 = vim.fn.strdisplaywidth(lines[1]:sub(1, col_start - 1)) + 1
+    local c2 = vim.fn.strdisplaywidth(lines[#lines]:sub(1, col_end - 1)) + 1
+    local vleft, vright = math.min(c1, c2), math.max(c1, c2)
     for i, line in ipairs(lines) do
-      -- the block's byte columns can land mid-character on other rows
-      local l = left
-      if l >= 1 and l <= #line then
-        l = l + vim.str_utf_start(line, l)
+      local sbyte, ebyte
+      local col = 1 -- screen column of the current character's first cell
+      local b = 1
+      while b <= #line do
+        local clen = vim.str_utf_end(line, b) + 1
+        local last_cell = vim.fn.strdisplaywidth(line:sub(1, b + clen - 1))
+        -- keep the character when its cells [col, last_cell] overlap the block
+        if last_cell >= vleft and col <= vright then
+          sbyte = sbyte or b
+          ebyte = b + clen - 1
+        end
+        col = last_cell + 1
+        b = b + clen
       end
-      lines[i] = line:sub(l, char_end_col(line, right))
+      lines[i] = sbyte and line:sub(sbyte, ebyte) or ""
     end
     return table.concat(lines, "\n")
   end

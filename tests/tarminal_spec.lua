@@ -254,6 +254,17 @@ describe("tarminal", function()
     assert.equals("é\nb", get_selection("\22"))
   end)
 
+  it("cuts a blockwise selection at screen columns across tab widths", function()
+    vim.bo.tabstop = 8
+    -- A and B both sit at screen column 9, but at different byte columns
+    -- (2 vs 9); a byte-column block would pull "2345678B" from the second row
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "\tA", "12345678B" })
+    vim.fn.setpos("'<", { 0, 1, 2, 0 }) -- A, byte col 2, screen col 9
+    vim.fn.setpos("'>", { 0, 2, 9, 0 }) -- B, byte col 9, screen col 9
+    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    assert.equals("A\nB", get_selection("\22"))
+  end)
+
   it("extracts an explicit line range", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
     local get_range = get_upvalue(tarminal.send_selection, "get_line_range")
