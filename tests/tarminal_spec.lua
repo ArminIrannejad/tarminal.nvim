@@ -490,6 +490,27 @@ describe("tarminal", function()
     assert.equals(before, #vim.api.nvim_list_wins())
   end)
 
+  it("cleans up and reports when the shell cannot start", function()
+    tarminal.setup({ shell = "/definitely/missing-shell" })
+    local notes = {}
+    local orig = vim.notify
+    vim.notify = function(msg, level) ---@diagnostic disable-line: duplicate-set-field
+      notes[#notes + 1] = { msg = msg, level = level }
+    end
+
+    local before = #vim.api.nvim_list_wins()
+    local ok = pcall(tarminal.toggle)
+    -- retry to prove empty splits do not accumulate
+    pcall(tarminal.toggle)
+    vim.notify = orig
+
+    assert.is_true(ok)
+    assert.equals(before, #vim.api.nvim_list_wins())
+    assert.is_nil(get_upvalue(tarminal.toggle, "find_live_terminal")("is_shell", true))
+    assert.is_true(#notes >= 1)
+    assert.equals(vim.log.levels.ERROR, notes[#notes].level)
+  end)
+
   it("toggle hides the terminal even when it is the last window", function()
     tarminal.toggle()
     local term_buf = vim.api.nvim_get_current_buf()

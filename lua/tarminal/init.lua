@@ -173,7 +173,7 @@ local function find_live_terminal(var_name, expected)
 end
 
 ---@param name string buffer name, e.g. "tarminal://shell"
----@return integer buf, integer win
+---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
   local win = terminal_split()
   -- jobstart in a fresh buffer instead of :terminal, whose Ex parsing would
@@ -182,13 +182,24 @@ local function open_shell_term(name)
   -- (dash) would make jobpid point at the wrapper, breaking the
   -- foreground-job check and the /proc cwd lookup.
   vim.cmd("enew")
-  local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
-  if vim.fn.has("nvim-0.11") == 1 then
-    vim.fn.jobstart(cmd, { term = true })
-  else
-    vim.fn.termopen(cmd)
-  end
   local buf = vim.api.nvim_get_current_buf()
+  local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
+  local ok, job
+  if vim.fn.has("nvim-0.11") == 1 then
+    ok, job = pcall(vim.fn.jobstart, cmd, { term = true })
+  else
+    ok, job = pcall(vim.fn.termopen, cmd)
+  end
+  -- a missing or unexecutable shell raises (E475) or returns <= 0; either
+  -- way tear down the window and buffer just created so repeated attempts
+  -- don't pile up empty splits, and report it instead of propagating a crash.
+  if not ok or type(job) ~= "number" or job <= 0 then
+    pcall(vim.api.nvim_win_close, win, true)
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    local msg = not ok and tostring(job):match("(E%d+:[^\n]*)")
+    vim.notify(msg or ("tarminal: could not start shell: " .. M.config.shell), vim.log.levels.ERROR)
+    return nil
+  end
   vim.b[buf].term_cwd = vim.fn.getcwd()
 
   vim.opt_local.number = false
@@ -719,6 +730,9 @@ local function get_or_create_shell_term()
   end
   local win
   buf, win = open_shell_term("tarminal://shell")
+  if not buf then
+    return nil
+  end
   vim.b[buf].is_shell = true
   return buf, win
 end
@@ -758,6 +772,10 @@ local function execute_in_shell(cmd, dir)
   end
 
   local term_buf, term_win = get_or_create_shell_term()
+  if not term_buf then
+    vim.api.nvim_set_current_win(code_win)
+    return
+  end
 
   -- the terminal rewrites screen lines in place; drop highlights left over
   -- from earlier runs
@@ -1072,6 +1090,9 @@ local function get_or_start_repl(ft)
   local dir = vim.fn.expand("%:p:h")
   local win
   buf, win = open_shell_term("tarminal://repl:" .. ft)
+  if not buf then
+    return nil
+  end
   term_cd(buf, dir)
   term_send_command(buf, repl_cmd)
   vim.b[buf].repl_ft = ft
