@@ -563,9 +563,13 @@ local function watch_run_errors(term_buf, banner_token, start_row)
       local tick = vim.api.nvim_buf_get_changedtick(term_buf)
       if tick == last_tick then
         elapsed = elapsed + WATCH_INTERVAL
-        -- output settled and the shell took the foreground back: run over
-        -- (busy nil = no job control; then only the silence timeout ends it)
-        if elapsed > WATCH_TIMEOUT or (seen and term_busy(term_buf) == false) then
+        -- output settled and the shell took the foreground back: run over.
+        -- The silence timeout only breaks indeterminate job-control states
+        -- (busy nil = no job control) — a command still holding the pty
+        -- foreground (busy true) keeps the watcher alive however long it
+        -- stays quiet, so a slow build that prints errors late is caught.
+        local busy = term_busy(term_buf)
+        if (seen and busy == false) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
           stop()
         end
         return
