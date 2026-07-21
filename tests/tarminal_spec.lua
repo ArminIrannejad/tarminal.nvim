@@ -807,13 +807,28 @@ describe("tarminal", function()
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
 
-    -- the shape the :Tarminal command dispatcher passes
-    tarminal.exec({ fargs = { "exec", "echo", "%" } })
+    -- the shape the :Tarminal command dispatcher passes (raw .args, plus the
+    -- pre-tokenized .fargs)
+    tarminal.exec({ args = "exec echo %", fargs = { "exec", "echo", "%" } })
 
     local received = wait_capture(out, "echo " .. file)
     vim.fn.delete(out)
     vim.fn.delete(script)
     vim.fn.delete(file)
+    assert.is_true(received)
+  end)
+
+  it("exec preserves shell quoting from the raw command line", function()
+    local out, script = stdin_capture_shell()
+    tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
+
+    -- .fargs would collapse the quotes to `echo a  b` (two args, lost
+    -- spacing); .args keeps the literal command
+    tarminal.exec({ args = "exec echo 'a  b'", fargs = { "exec", "echo", "a  b" } })
+
+    local received = wait_capture(out, "echo 'a  b'")
+    vim.fn.delete(out)
+    vim.fn.delete(script)
     assert.is_true(received)
   end)
 
@@ -842,7 +857,7 @@ describe("tarminal", function()
     assert.equals("echo first_exec", seen_default)
   end)
 
-  it("exec from a non-file buffer re-runs the last expanded command", function()
+  it("exec from a non-file buffer prompts and reruns the expanded command verbatim", function()
     local out, script = stdin_capture_shell()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
@@ -853,14 +868,25 @@ describe("tarminal", function()
     local expanded = "echo ran " .. file
     assert.is_true(wait_capture(out, expanded))
 
-    -- from the terminal window, a bare exec must resend the expanded
-    -- command instead of re-expanding % against the terminal buffer
+    -- focus the terminal window (a non-file buffer)
     for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
       if vim.bo[vim.api.nvim_win_get_buf(win)].filetype == "tarminal" then
         vim.api.nvim_set_current_win(win)
       end
     end
+
+    -- a bare exec still prompts, pre-filled with the expanded command;
+    -- accepting it must resend verbatim, not re-expand % against the
+    -- terminal buffer (which would send `echo ran <terminal name>`)
+    local seen_default
+    local orig = vim.ui.input
+    vim.ui.input = function(opts, on_confirm) ---@diagnostic disable-line: duplicate-set-field
+      seen_default = opts.default
+      on_confirm(opts.default)
+    end
     tarminal.exec()
+    vim.ui.input = orig
+    assert.equals(expanded, seen_default)
 
     local resent = vim.wait(8000, function()
       local text = table.concat(vim.fn.readfile(out), "\n")

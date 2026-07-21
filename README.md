@@ -62,13 +62,14 @@ you want yourself (see the [example setup](#example-setup) below).
 - `:Tarminal run` — save and run the current file (from a non-file buffer:
   re-run the last run)
 - `:Tarminal exec {cmd}` — run an arbitrary command in the terminal, emacs
-  `M-x compile` style. Without `{cmd}` it prompts, pre-filled with the last
-  command, so plain Enter re-runs it. Cmdline specials are expanded first:
-  `%` is the current file, and `%:r`, `%:t`, `#`, `<cword>`, … all work
-  (`:h cmdline-special`; use `%:S` if the path needs shell quoting) — so
-  `:Tarminal exec make %:r` or `gcc -O2 % -o %:r && ./%:r` without typing
-  paths. From a non-file buffer a bare `exec` re-runs the last command
-  exactly as it was expanded, and prompts if nothing has been run yet.
+  `M-x compile` style. Without `{cmd}` it always prompts, pre-filled with the
+  last command, so plain Enter re-runs it. Cmdline specials in `{cmd}` are
+  expanded first: `%` is the current file, and `%:r`, `%:t`, `#`, `<cword>`,
+  … all work (`:h cmdline-special`; use `%:S` if the path needs shell
+  quoting) — so `:Tarminal exec make %:r` or `gcc -O2 % -o %:r && ./%:r`
+  without typing paths. The prefilled command at the prompt is already
+  expanded and re-runs verbatim, so a bare `exec` from a non-file buffer
+  never re-resolves `%` against the terminal itself.
 - `:Tarminal send_cell` — send the cell around the cursor to the REPL
 - `:'<,'>Tarminal send_selection` — send the selected line range to the REPL
   (the optional visual-mode keymap preserves exact character/block selections)

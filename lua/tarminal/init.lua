@@ -918,24 +918,28 @@ end
 --- (|cmdline-special|: %, %:r, #, <cword>, ...) are expanded first, and
 --- the command runs from nvim's cwd so `%`'s relative path resolves.
 ---@param arg string|table|nil command, :Tarminal callback data, or nil
-function M.exec(arg)
+---@param verbatim boolean|nil run `arg` as given, skipping cmdline-special expansion
+function M.exec(arg, verbatim)
   local input
   if type(arg) == "string" then
     input = arg
   elseif type(arg) == "table" then
-    input = table.concat(vim.list_slice(arg.fargs or {}, 2), " ")
+    -- use the raw argument text, not fargs: fargs is pre-tokenized, which
+    -- collapses shell quoting and escaping (`echo 'a  b'` -> `echo a b`,
+    -- an escaped `\|` -> a pipe), materially changing the command. Strip
+    -- the leading `exec` subcommand token the :Tarminal dispatcher leaves.
+    input = (arg.args or ""):gsub("^%s*%S+%s*", "")
   end
 
   if not input or input == "" then
-    -- always prompt on a bare exec. Pre-fill with the previously expanded
-    -- command rather than the raw input: the expanded form is a concrete
-    -- shell command, so pressing enter re-runs it unchanged from any
-    -- buffer. (Defaulting to the raw input would re-expand cmdline
-    -- specials like `%` against the current buffer — the terminal's own
-    -- name from a non-file buffer — silently running the wrong command.)
+    -- always prompt on a bare exec, pre-filled with the previously expanded
+    -- command. Confirming reruns it verbatim: the prefill is already
+    -- expanded, so re-expanding would double-expand a filename containing
+    -- `%`/`#` and re-resolve `%` against whatever buffer is current now
+    -- (the terminal's own name from a non-file buffer).
     vim.ui.input({ prompt = "exec: ", default = M._last_exec_cmd, completion = "shellcmd" }, function(text)
       if text and text ~= "" then
-        M.exec(text)
+        M.exec(text, true)
       end
     end)
     return
@@ -946,11 +950,15 @@ function M.exec(arg)
     return
   end
 
-  local ok, cmd = pcall(vim.fn.expandcmd, input)
-  if not ok then
-    cmd = tostring(cmd)
-    vim.notify(cmd:match("(E%d+:[^\n]*)") or cmd, vim.log.levels.ERROR)
-    return
+  local cmd = input
+  if not verbatim then
+    local ok, expanded = pcall(vim.fn.expandcmd, input)
+    if not ok then
+      expanded = tostring(expanded)
+      vim.notify(expanded:match("(E%d+:[^\n]*)") or expanded, vim.log.levels.ERROR)
+      return
+    end
+    cmd = expanded
   end
 
   M._last_exec_cmd = cmd
