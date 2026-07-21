@@ -367,6 +367,37 @@ describe("tarminal", function()
     assert.equals(18, col)
   end)
 
+  it("parses error locations whose paths contain parentheses", function()
+    local dir = vim.fn.tempname()
+    local file = dir .. "/report(audit).c"
+    vim.fn.mkdir(dir, "p")
+    vim.fn.writefile({ "int main() {}" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parsed_file, line, col = parse(file .. ":1:2: error", vim.api.nvim_get_current_buf())
+    vim.fn.delete(dir, "rf")
+
+    assert.equals(file, parsed_file)
+    assert.equals(1, line)
+    assert.equals(2, col)
+  end)
+
+  it("unwraps a path the message encloses in parentheses (V8 stack trace)", function()
+    local file = vim.fn.tempname() .. ".js"
+    vim.fn.writefile({ "throw new Error()" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local output = "    at Object.<anonymous> (" .. file .. ":1:7)"
+    local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(1, line)
+    assert.equals(7, col)
+    -- the highlight span starts at the path, past the wrapping "("
+    assert.equals(output:find(file, 1, true), span_start)
+  end)
+
   it("parses Node.js syntax error locations without a column", function()
     local file = vim.fn.tempname() .. ".js"
     vim.fn.writefile({ "function broken( {}" }, file)

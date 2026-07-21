@@ -328,7 +328,9 @@ end
 
 --- Resolve a location candidate that may carry a prefix before the path,
 --- like sbt's `[error] /path/Main.scala:12:4`: try the whole candidate
---- first so paths with spaces keep working, then drop leading words.
+--- first so paths with spaces keep working, then drop leading words. Each
+--- attempt is retried past a single leading bracket/quote so a path the
+--- message wraps — node's `(/app/x.js:1:2)` — still resolves.
 ---@return string|nil path, integer|nil offset byte offset of the path in `candidate`
 local function resolve_file_suffix(candidate, term_buf)
   local trimmed = vim.trim(candidate)
@@ -336,9 +338,16 @@ local function resolve_file_suffix(candidate, term_buf)
   local start = 1
 
   while true do
-    local path = resolve_file(trimmed:sub(start), term_buf)
+    local suffix = trimmed:sub(start)
+    local path = resolve_file(suffix, term_buf)
     if path then
       return path, trim_offset + start - 1
+    end
+    if suffix:match("^[%(%[<'\"]") then
+      path = resolve_file(suffix:sub(2), term_buf)
+      if path then
+        return path, trim_offset + start
+      end
     end
 
     local _, prefix_end = trimmed:find("%s+", start)
@@ -367,7 +376,10 @@ local function parse_error_line(line, term_buf)
   local init = 1
   while true do
     local f, l, c
-    s, e, f, l, c = line:find("([^:'\"()]+):(%d+):?(%d*)", init)
+    -- keep quotes out (python's `File "..."` is handled above) but allow
+    -- parens so paths like `/tmp/foo(audit).c` parse; a path the message
+    -- wraps in `(...)` is unwrapped by resolve_file_suffix.
+    s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
     if not s then
       break
     end
