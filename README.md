@@ -96,9 +96,9 @@ require("tarminal").setup({
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
-  cell_marker = "# COMMAND ----------", --line that delimits REPL "cells"
+  cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = true,                     -- time the run (for compiled files: the binary)
-  banner = true,                        --print banner before each run
+  banner = true,                        -- print banner before each run
   quickfix = {
     open = true,
     close_terminal = true,
