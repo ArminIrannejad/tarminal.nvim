@@ -123,8 +123,6 @@ Common compilers such as `cc`, `gcc`, `clang`, and `rustc` are detected and
 the built program is run. Use `run_binary = true` or `false` when you want to
 choose that behavior yourself. `args` is added after the file path.
 
-Default runners are included for Python, shell, Lua, JavaScript, Go, Haskell,
-OCaml, C, Rust, and Odin.
 
 ### REPLs
 
