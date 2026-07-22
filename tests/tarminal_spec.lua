@@ -497,6 +497,72 @@ describe("tarminal", function()
     assert.is_truthy(content:find("print(1)\nprint(2)", 1, true))
   end)
 
+  it("wraps multi-line sends in the REPL's block markers", function()
+    local out = vim.fn.tempname()
+    tarminal.setup({
+      follow_repl = "none",
+      repls = {
+        lua = {
+          cmd = "cat > " .. vim.fn.shellescape(out),
+          bracketed_paste = false,
+          block_open = ":{",
+          block_close = ":}",
+        },
+      },
+    })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)", "print(2)" })
+    vim.bo.filetype = "lua"
+
+    tarminal.send_cell()
+
+    local received = vim.wait(8000, function()
+      return vim.fn.filereadable(out) == 1 and table.concat(vim.fn.readfile(out), "\n"):find(":}", 1, true) ~= nil
+    end, 50)
+    local content = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    assert.is_true(received)
+    -- block markers wrap the selection, no paste escapes
+    assert.is_falsy(content:find("\27", 1, true))
+    assert.is_truthy(content:find(":{\nprint(1)\nprint(2)\n:}", 1, true))
+  end)
+
+  it("leaves single-line sends unwrapped when block markers are set", function()
+    local out = vim.fn.tempname()
+    tarminal.setup({
+      follow_repl = "none",
+      repls = {
+        lua = {
+          cmd = "cat > " .. vim.fn.shellescape(out),
+          bracketed_paste = false,
+          block_open = ":{",
+          block_close = ":}",
+        },
+      },
+    })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)" })
+    vim.bo.filetype = "lua"
+
+    tarminal.send_cell()
+
+    local received = vim.wait(8000, function()
+      return vim.fn.filereadable(out) == 1 and table.concat(vim.fn.readfile(out), "\n"):find("print(1)", 1, true) ~= nil
+    end, 50)
+    local content = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    assert.is_true(received)
+    assert.is_falsy(content:find(":{", 1, true))
+    assert.equals("print(1)", content)
+  end)
+
+  it("exposes block markers through repl_spec", function()
+    local send = get_upvalue(tarminal.send_cell, "send_to_repl")
+    local spec = get_upvalue(send, "repl_spec")
+    local cmd, _, block_open, block_close = spec("haskell")
+    assert.equals("ghci", cmd)
+    assert.equals(":{", block_open)
+    assert.equals(":}", block_close)
+  end)
+
   local function toggle_and_get_row()
     tarminal.toggle()
     local term_win = vim.api.nvim_get_current_win()

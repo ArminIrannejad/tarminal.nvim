@@ -53,6 +53,9 @@ local uv = vim.uv or vim.loop
 ---@field cmd string interactive REPL command
 ---@field bracketed_paste boolean|nil false for REPLs that read raw stdin and
 ---would see the paste escape sequences as input (the stock ocaml toplevel)
+---@field block_open string|nil marker that opens a multi-line block, sent on its
+---own line before a multi-line selection (ghci's `:{`); pairs with block_close
+---@field block_close string|nil marker that closes the block (ghci's `:}`)
 
 local defaults = {
   split_height = 12,
@@ -104,9 +107,11 @@ local defaults = {
     julia = "julia",
     r = "R",
     -- ghci's line editor (haskeline) does not understand bracketed paste and
-    -- swallows a block wrapped in the paste escapes, so send it raw — one line
-    -- at a time, or a `:{ ... :}` block you select yourself
-    haskell = { cmd = "ghci", bracketed_paste = false },
+    -- swallows a block wrapped in the paste escapes, so send it raw. Raw lines
+    -- are evaluated the moment their newline arrives, which splits type
+    -- signatures from definitions and collapses do/where blocks, so wrap
+    -- multi-line sends in ghci's own `:{ ... :}` block markers instead.
+    haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   quickfix = {
@@ -1094,11 +1099,11 @@ local function get_line_range(line1, line2)
 end
 
 --- Normalize a `repls` entry (see tarminal.Repl).
----@return string|nil cmd, boolean bracketed_paste
+---@return string|nil cmd, boolean bracketed_paste, string|nil block_open, string|nil block_close
 local function repl_spec(ft)
   local spec = M.config.repls[ft]
   if type(spec) == "table" then
-    return spec.cmd, spec.bracketed_paste ~= false
+    return spec.cmd, spec.bracketed_paste ~= false, spec.block_open, spec.block_close
   end
   return spec, true
 end
@@ -1130,14 +1135,18 @@ local function get_or_start_repl(ft)
 end
 
 --- Send text bracketed-paste wrapped so multi-line blocks paste cleanly,
---- unless the REPL's entry disables it (then it goes raw).
+--- unless the REPL's entry disables it (then it goes raw). REPLs that provide
+--- block markers (ghci's `:{ ... :}`) instead wrap multi-line sends in those,
+--- so the block is read as one unit rather than line by line.
 local function send_to_repl(repl_buf, text)
   if not text:match("\n$") then
     text = text .. "\n"
   end
 
-  local _, bracketed = repl_spec(vim.b[repl_buf].repl_ft)
-  if bracketed then
+  local _, bracketed, block_open, block_close = repl_spec(vim.b[repl_buf].repl_ft)
+  if block_open and text:match("\n.*\n$") then
+    text = block_open .. "\n" .. text .. block_close .. "\n"
+  elseif bracketed then
     text = "\x1b[200~" .. text .. "\x1b[201~\n"
   end
   term_send(repl_buf, text)

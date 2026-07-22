@@ -52,6 +52,8 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       repls = {
         python = "ipython",
         ocaml = { cmd = "ocaml", bracketed_paste = false },
+        haskell = { cmd = "ghci", bracketed_paste = false,
+          block_open = ":{", block_close = ":}" },
         ...
       },
       quickfix = {
@@ -95,6 +97,12 @@ A `repls` entry is the REPL command, or a table with `cmd` and
 `bracketed_paste = false` for REPLs that read raw stdin and would see the
 bracketed-paste escape sequences as input (the stock ocaml toplevel — the
 default entry). With bracketed paste disabled the text is sent unwrapped.
+
+Raw REPLs evaluate each line the moment its newline arrives, breaking
+multi-line definitions and indented blocks. Set `block_open` and
+`block_close` to the REPL's own block markers (ghci's `:{` and `:}`, its
+default entry) to wrap multi-line sends in them so the block is read as one
+unit; single-line sends stay unwrapped.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal

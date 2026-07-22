@@ -130,7 +130,7 @@ require("tarminal").setup({
     ruby = "irb",
     julia = "julia",
     r = "R",
-    haskell = { cmd = "ghci", bracketed_paste = false },
+    haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   quickfix = {                          -- errors_to_quickfix behavior
@@ -195,8 +195,13 @@ A `repls` entry is the REPL command, or a table `{ cmd = ..., bracketed_paste
 = false }` for REPLs whose line editor does not understand bracketed paste and
 would see the escape sequences as input — the stock `ocaml` toplevel and `ghci`
 (whose haskeline line editor swallows a pasted block) are the bundled examples.
-With `bracketed_paste = false` the text is sent unwrapped, one line at a time,
-so send a multi-line block as a `:{ ... :}` region you select yourself.
+With `bracketed_paste = false` the text is sent unwrapped, one line at a time.
+
+REPLs that read raw lines evaluate each line the moment its newline arrives,
+which breaks multi-line definitions and indented blocks. For those, set
+`block_open` and `block_close` to the REPL's own block markers (ghci's `:{` and
+`:}`); multi-line sends are then wrapped in them and read as a single unit,
+while single-line sends stay unwrapped.
 
 The `shell` command is split on whitespace and spawned directly, without a
 wrapper shell — any POSIX-compatible shell works. (With a shell that lacks
