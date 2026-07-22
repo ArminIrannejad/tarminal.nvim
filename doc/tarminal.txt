@@ -1,4 +1,4 @@
-*tarminal.txt*        For Neovim >= 0.9        Last change: 2026 July 15
+*tarminal.txt*        For Neovim >= 0.9        Last change: 2026 July 22
 
 ==============================================================================
 Table of Contents                                 *tarminal-table-of-contents*
@@ -21,7 +21,8 @@ tarminal.nvim is a terminal runner / REPL integration:
   separated by run banners.
 - File locations in terminal output ("foo.c:12:5:", 'File "foo.py", line
   12') are highlighted and navigable; after a run the cursor is parked on
-  the first error.
+  the first error. The recognized formats are configurable (`error_patterns`)
+  and locations are classified by severity (`error_threshold`).
 - Send a visual selection or the cell around the cursor (delimited by
   `cell_marker` lines) to a per-filetype REPL, using bracketed paste.
 
@@ -56,6 +57,12 @@ Call the setup function, optionally passing overrides for the defaults: >lua
           block_open = ":{", block_close = ":}" },
         ...
       },
+      error_patterns = {         -- error-location formats, tried in order
+        { pattern = [[at (%S+) line (%d+)]],  -- your own, added before built-ins
+          file = 1, lnum = 2, resolve = false },
+        ...
+      },
+      error_threshold = 0,       -- min severity to act on: 0 note | 1 warn | 2 error
       quickfix = {
         open = true,            -- open quickfix after errors_to_quickfix
         close_terminal = true,  -- close the terminal window as well
@@ -105,6 +112,20 @@ multi-line definitions and indented blocks. Set `block_open` and
 `block_close` to the REPL's own block markers (ghci's `:{` and `:}`, its
 default entry) to wrap multi-line sends in them so the block is read as one
 unit; single-line sends stay unwrapped.
+
+A file location in terminal output is recognized by matching each line
+against `error_patterns` in order; `file`, `lnum`, `col` and `type` are
+capture indices in the pattern. Your patterns are tried before the
+built-ins (which cover `path:line:col` and `File "..."` shapes). By default
+a match only counts when the file exists on disk, keeping false positives
+out; `resolve = false` trusts the pattern and takes the path as written, so
+a location that does not resolve against the terminal's directory (output
+from a subfolder, another machine) is still caught. `type` classifies a
+location as an error, warning or note — a capture index holding the word,
+or a fixed "error"/"warning"/"info". Warnings are highlighted with
+|TarminalWarning|, quickfix entries carry the severity, and
+`error_threshold` skips anything below it when parking, navigating and
+collecting (set it to 2 to ignore warnings).
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
@@ -190,5 +211,9 @@ event without touching any other terminal: >lua
 TarminalError                                                 *TarminalError*
     Error locations in terminal output. Defaults to bold with the
     foreground of DiagnosticError; redefined on |ColorScheme|.
+
+TarminalWarning                                             *TarminalWarning*
+    Warning and note locations (see `error_patterns`). Defaults to bold with
+    the foreground of DiagnosticWarn; redefined on |ColorScheme|.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

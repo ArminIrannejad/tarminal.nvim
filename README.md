@@ -8,6 +8,7 @@ the current file, and sends selections or cells to a REPL.
 ## Features
 
 - Jump to errors such as `foo.c:12:5` or `File "foo.py", line 12`
+- Add patterns for other error formats, with warning/error severity
 - Move between errors or add them to the quickfix list
 - Run the current file in a shared terminal split
 - Run any command with `:Tarminal exec`
@@ -94,6 +95,7 @@ require("tarminal").setup({
   follow_repl = "none",    
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
+  error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", --line that delimits REPL "cells"
   time_runs = true,                     -- time the run (for compiled files: the binary)
   banner = true,                        --print banner before each run
@@ -142,6 +144,34 @@ require("tarminal").setup({
   },
 })
 ```
+
+### Errors
+
+tarminal recognizes an error location by matching each terminal line against a
+list of patterns. Each pattern says where the file, line, column, and (optional)
+severity are. The built-ins cover the common `path:line:col` and `File "..."`
+shapes; add your own for tools they miss:
+
+```lua
+require("tarminal").setup({
+  error_patterns = {
+    -- "Died at /path/script.pl line 42."
+    { pattern = "at (%S+) line (%d+)", file = 1, lnum = 2, resolve = false },
+  },
+})
+```
+
+`file`, `lnum`, `col`, and `type` are capture indices in `pattern`. Your patterns
+are tried before the built-ins. By default a match only counts if the file
+exists on disk (so false positives stay out); set `resolve = false` to trust the
+pattern and take the path as written — useful when the path won't resolve against
+the terminal's directory (output from a subfolder, another machine).
+
+`type` classifies a location as an error, warning, or note (either a capture
+index holding the word, or a fixed `"error"`/`"warning"`/`"info"`). Warnings get
+their own highlight (`TarminalWarning`), quickfix entries carry the severity, and
+`error_threshold` skips anything below it when parking, navigating, and
+collecting — set it to `2` to ignore warnings.
 
 ## License
 
