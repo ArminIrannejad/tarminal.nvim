@@ -124,8 +124,10 @@ from a subfolder, another machine) is still caught. `type` classifies a
 location as an error, warning or note — a capture index holding the word,
 or a fixed "error"/"warning"/"info". Warnings are highlighted with
 |TarminalWarning|, quickfix entries carry the severity, and
-`error_threshold` skips anything below it when parking, navigating and
-collecting (set it to 2 to ignore warnings).
+`error_threshold` skips anything below it when parking, stepping between
+errors (next_error/prev_error) and collecting (set it to 2 to ignore
+warnings). An explicit jump_to_error on the current line always jumps,
+whatever the severity.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal

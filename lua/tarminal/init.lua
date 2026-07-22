@@ -32,8 +32,10 @@ local uv = vim.uv or vim.loop
 ---@field repls table<string, string|tarminal.Repl> filetype -> interactive REPL command
 ---@field error_patterns tarminal.ErrorPattern[] tried in order to recognize a
 ---file location in terminal output, before the built-in embedded-path fallback
----@field error_threshold integer minimum severity to navigate to, park on, or
----collect into quickfix: 0 (note/info) | 1 (warning) | 2 (error)
+---@field error_threshold integer minimum severity to park on, step between
+---(next_error/prev_error), or collect into quickfix: 0 (note/info) | 1
+---(warning) | 2 (error). An explicit jump_to_error on the current line always
+---jumps, whatever the severity.
 ---@field quickfix tarminal.Quickfix
 
 --- What errors_to_quickfix does besides populating the quickfix list.

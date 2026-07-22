@@ -170,8 +170,10 @@ the terminal's directory (output from a subfolder, another machine).
 `type` classifies a location as an error, warning, or note (either a capture
 index holding the word, or a fixed `"error"`/`"warning"`/`"info"`). Warnings get
 their own highlight (`TarminalWarning`), quickfix entries carry the severity, and
-`error_threshold` skips anything below it when parking, navigating, and
-collecting — set it to `2` to ignore warnings.
+`error_threshold` skips anything below it when parking, stepping between errors
+(`next_error`/`prev_error`), and collecting — set it to `2` to ignore warnings.
+Pressing Enter (`jump_to_error`) on a line always jumps to its location, whatever
+the severity.
 
 ## License
 
