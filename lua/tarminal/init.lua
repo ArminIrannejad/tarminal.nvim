@@ -612,9 +612,15 @@ local WATCH_TIMEOUT = 30000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
+--- Highlight group for a severity rank (see severity_rank): warnings and
+--- notes are visually distinct from errors.
+local function severity_hl(sev)
+  return (sev or 2) >= 2 and "TarminalError" or "TarminalWarning"
+end
+
 --- Highlight a byte range of a logical line across the physical lines it
 --- wraps over.
-local function highlight_span(term_buf, lines, first_row, last_row, span_s, span_e)
+local function highlight_span(term_buf, lines, first_row, last_row, span_s, span_e, hl_group)
   local off = 0
   for row = first_row, last_row do
     local len = #lines[row]
@@ -623,7 +629,7 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
     if cs <= ce then
       vim.api.nvim_buf_set_extmark(term_buf, ns, row - 1, cs - 1, {
         end_col = ce,
-        hl_group = "TarminalError",
+        hl_group = hl_group or "TarminalError",
         strict = false,
       })
     end
@@ -744,10 +750,12 @@ local function watch_run_errors(term_buf, banner_token, start_row)
       local i = banner_row + 1
       while i <= #lines do
         local logical, first, last = logical_line_at(lines, i, width)
-        local file, _, _, span_s, span_e = parse_error_line(logical, term_buf)
+        local file, _, _, span_s, span_e, sev = parse_error_line(logical, term_buf)
         if file then
-          highlight_span(term_buf, lines, first, last, span_s, span_e)
-          if not parked then
+          -- every location is highlighted (warnings a distinct color), but the
+          -- cursor only parks on one at or above the severity threshold
+          highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
+          if not parked and sev >= M.config.error_threshold then
             parked = true
             if win and not typing then
               vim.api.nvim_win_set_cursor(win, { math.max(first, banner_row + 1), 0 })
@@ -774,7 +782,8 @@ local function goto_error(dir)
   local i = dir > 0 and cur_last + 1 or cur_first - 1
   while i >= 1 and i <= #lines do
     local logical, first, last = logical_line_at(lines, i, width)
-    if parse_error_line(logical, term_buf) then
+    local file, _, _, _, _, sev = parse_error_line(logical, term_buf)
+    if file and sev >= M.config.error_threshold then
       vim.api.nvim_win_set_cursor(0, { first, 0 })
       return
     end
@@ -819,13 +828,14 @@ function M.errors_to_quickfix()
   local i = start_row
   while i <= #lines do
     local logical, _, last = logical_line_at(lines, i, width)
-    local file, lnum, col = parse_error_line(logical, term_buf)
-    if file then
+    local file, lnum, col, _, _, sev = parse_error_line(logical, term_buf)
+    if file and sev >= M.config.error_threshold then
       items[#items + 1] = {
         filename = file,
         lnum = lnum,
         col = col or 1,
         text = vim.trim(logical),
+        type = ({ [0] = "I", [1] = "W", [2] = "E" })[sev] or "E",
       }
     end
     i = last + 1
@@ -1317,8 +1327,10 @@ function M.send_cell()
 end
 
 local function define_error_highlight()
-  local diag = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
-  vim.api.nvim_set_hl(0, "TarminalError", { fg = diag.fg or "Red", bold = true })
+  local err = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
+  vim.api.nvim_set_hl(0, "TarminalError", { fg = err.fg or "Red", bold = true })
+  local warn = vim.api.nvim_get_hl(0, { name = "DiagnosticWarn", link = false })
+  vim.api.nvim_set_hl(0, "TarminalWarning", { fg = warn.fg or "Yellow", bold = true })
 end
 
 --- Settings only — tarminal never creates keymaps; map keys yourself to
