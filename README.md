@@ -1,11 +1,19 @@
 # tarminal.nvim
 
-Terminal runner / REPL integration for Neovim: a shared split shell
-terminal for running files, filetype-aware REPLs for sending selections and
-cells, and clickable error locations in terminal output.
+Terminal runner / REPL integration for Neovim: clickable, navigable error
+locations in terminal output, a shared split shell terminal for running files,
+and filetype-aware REPLs for sending selections and cells.
 
 ## Features
 
+- **Error navigation in terminal output** — the headline feature, and one
+  almost no other plugin offers: file locations printed by *any* command in
+  the terminal (`foo.c:12:5:`, `File "foo.py", line 12`, …) are highlighted;
+  jump straight to the location under the cursor (wrapped long lines are
+  handled), step between locations, or collect them all into the quickfix
+  list. After a run the cursor is parked on the first error, so a single jump
+  lands on it — compiler errors become as navigable as a language server's,
+  from real program output.
 - **Shared shell terminal** — toggle a full-width split running your shell;
   it opens where your `'splitbelow'` setting puts splits (overridable with
   `split_position`). Its buffer is reused across runs and can be shown
@@ -19,11 +27,6 @@ cells, and clickable error locations in terminal output.
   prompts for a command (pre-filled with the last one), expands `%`-style
   cmdline specials, and gives the output the same banner and clickable
   errors as a run.
-- **Error navigation** — file locations in the output (`foo.c:12:5:`,
-  `File "foo.py", line 12`, …) are highlighted; jump to the location under
-  the cursor (wrapped long lines are handled), move between locations, or
-  collect them into the quickfix list. After a run the cursor is parked on
-  the first error so a single jump lands on it.
 - **REPL integration** — send the visual selection or the "cell" around the
   cursor (delimited by `cell_marker` lines) to a per-filetype REPL, wrapped
   in bracketed paste so multi-line blocks paste cleanly.
@@ -148,7 +151,7 @@ program is listed in `compilers`, tarminal instead builds and runs it
 so `/usr/bin/clang-17 -Wall` is recognized too.
 
 For a compiler the name detection doesn't know, a runner entry can also be a
-table with an explicit `compile` flag — no need to touch the `compilers` list:
+table with an explicit `run_binary` flag — no need to touch the `compilers` list:
 
 ```lua
 runners = {
@@ -161,6 +164,13 @@ runners = {
 does); it only skips producing and running a separate `-o` binary. With
 `run_binary` unset (or a plain string entry), it is inferred from the command's
 program name via `compilers` as above.
+
+This is handy if you already run your programs in a dedicated terminal and just
+want the build side here — set a build-only command with `run_binary = false`
+(e.g. `c = { cmd = "cc -o myprog", run_binary = false }`) and tarminal compiles
+the file, surfacing any errors with full clickable error navigation, while you
+launch the resulting binary yourself in your own terminal. You get tarminal's
+error jumping over the compile without giving up your existing run workflow.
 
 A table entry can also carry `args`, appended *after* the file, for tools that
 require `<cmd> <file> <flag>` order rather than accepting the file last. This is
@@ -239,14 +249,12 @@ filetype (which fires for every terminal the plugin creates):
       pattern = "tarminal",
       callback = function(ev)
         local t = require("tarminal")
-        local function map(mode, lhs, rhs, desc)
-          vim.keymap.set(mode, lhs, rhs, { buffer = ev.buf, desc = desc })
-        end
-        map("t", "<Esc><Esc>", [[<C-\><C-n>]], "Exit terminal mode")
-        map("n", "<CR>", t.jump_to_error, "Jump to file location on this line")
-        map("n", "]e", t.next_error, "Next error location")
-        map("n", "[e", t.prev_error, "Previous error location")
-        map("n", "<C-q>", t.errors_to_quickfix, "Errors to quickfix")
+        local opts = { buffer = ev.buf }
+        vim.keymap.set("t", "<Esc><Esc>", [[<C-\><C-n>]], opts)
+        vim.keymap.set("n", "<CR>", t.jump_to_error, opts)
+        vim.keymap.set("n", "]e", t.next_error, opts)
+        vim.keymap.set("n", "[e", t.prev_error, opts)
+        vim.keymap.set("n", "<C-q>", t.errors_to_quickfix, opts)
       end,
     })
   end,
