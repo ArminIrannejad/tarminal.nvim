@@ -1332,6 +1332,42 @@ describe("tarminal", function()
     vim.fn.delete(script)
   end)
 
+  it("jumps to a file-only location without a line number", function()
+    local file = vim.fn.tempname() .. ".txt"
+    vim.fn.writefile({ "hello", "world" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf 'see %%s\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({
+      shell = "sh " .. script,
+      error_patterns = { { pattern = "see (%S+)", file = 1, resolve = false } },
+    })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    local target
+    local seen = vim.wait(4000, function()
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:find("see " .. file, 1, true) then
+          target = i
+          return true
+        end
+      end
+      return false
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { target, 0 })
+    -- a pattern with no line number used to crash on math.max(nil, 1)
+    local ok = pcall(tarminal.jump_to_error)
+
+    assert.is_true(ok)
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 1, 0 }, vim.api.nvim_win_get_cursor(0))
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
   it("does not send REPL input to the shell when the REPL fails to start", function()
     -- the guard reads /proc children; skip where the kernel does not expose it
     if vim.fn.filereadable("/proc/self/task/" .. vim.fn.getpid() .. "/children") == 0 then

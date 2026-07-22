@@ -604,8 +604,9 @@ function M.jump_to_error()
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
+  -- a location without a line number (a file-only pattern) lands on line 1;
   -- linkers emit "file:0:" locations — clamp both ends of the range
-  lnum = math.min(math.max(lnum, 1), vim.api.nvim_buf_line_count(buf))
+  lnum = math.min(math.max(lnum or 1, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
 end
@@ -825,7 +826,7 @@ function M.errors_to_quickfix()
     if file and sev >= M.config.error_threshold then
       items[#items + 1] = {
         filename = file,
-        lnum = lnum,
+        lnum = lnum or 1,
         col = col or 1,
         text = vim.trim(logical),
         type = ({ [0] = "I", [1] = "W", [2] = "E" })[sev] or "E",
