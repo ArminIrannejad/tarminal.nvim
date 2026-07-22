@@ -1332,6 +1332,23 @@ describe("tarminal", function()
     vim.fn.delete(script)
   end)
 
+  it("refuses error navigation in a terminal it did not create", function()
+    vim.fn.setqflist({})
+    vim.cmd("terminal")
+    local buf = vim.api.nvim_get_current_buf()
+    local win = vim.api.nvim_get_current_win()
+    assert.is_not.equals("tarminal", vim.bo[buf].filetype)
+
+    tarminal.errors_to_quickfix()
+    tarminal.jump_to_error()
+    tarminal.next_error()
+
+    -- the foreign terminal stays open and nothing is collected from it
+    assert.is_true(vim.api.nvim_win_is_valid(win))
+    assert.equals(buf, vim.api.nvim_win_get_buf(win))
+    assert.equals(0, #vim.fn.getqflist())
+  end)
+
   it("jumps to a file-only location without a line number", function()
     local file = vim.fn.tempname() .. ".txt"
     vim.fn.writefile({ "hello", "world" }, file)

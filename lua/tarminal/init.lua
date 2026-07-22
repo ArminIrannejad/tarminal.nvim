@@ -563,12 +563,13 @@ local function pick_code_win()
 end
 
 --- Error navigation reads the current buffer as terminal output; refuse
---- anything else.
+--- anything that isn't one of tarminal's own terminals (filetype "tarminal"),
+--- so a plain :terminal is never parsed, jumped in, or closed.
 ---@return integer|nil term_buf
 local function current_term_buf()
   local buf = vim.api.nvim_get_current_buf()
-  if vim.bo[buf].buftype ~= "terminal" then
-    vim.notify("Not in a terminal buffer", vim.log.levels.WARN)
+  if vim.bo[buf].buftype ~= "terminal" or vim.bo[buf].filetype ~= "tarminal" then
+    vim.notify("Not in a tarminal terminal", vim.log.levels.WARN)
     return nil
   end
   return buf
