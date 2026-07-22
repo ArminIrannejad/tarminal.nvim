@@ -337,6 +337,43 @@ local function term_busy(buf)
   return uv.kill(-tpgid, 0) == 0
 end
 
+--- Whether the terminal's shell has a live child — the REPL it launched. Read
+--- from /proc children rather than tpgid so it holds even for shells without
+--- job control (dash), where term_busy can't tell. nil when it can't be read.
+---@return boolean|nil
+local function shell_has_child(buf)
+  local job = get_job_id(buf)
+  if not job then
+    return nil
+  end
+  local ok, pid = pcall(vim.fn.jobpid, job)
+  if not ok or not pid or pid <= 0 then
+    return nil
+  end
+  local f = io.open("/proc/" .. pid .. "/task/" .. pid .. "/children", "r")
+  if not f then
+    return nil
+  end
+  local kids = f:read("*a") or ""
+  f:close()
+  return vim.trim(kids) ~= ""
+end
+
+--- Wait for a freshly launched REPL to take over the shell it started in. A
+--- real REPL becomes (and stays) a child of the shell; a missing or
+--- instantly-exiting command leaves at most a flicker, so re-check after the
+--- wait to reject it. Returns true when it can't be determined (no /proc
+--- children) so the guard degrades to a no-op rather than blocking sends.
+---@return boolean
+local function wait_for_repl(buf)
+  if shell_has_child(buf) == nil then
+    return true
+  end
+  return vim.wait(2000, function()
+    return shell_has_child(buf)
+  end, 20) and shell_has_child(buf) == true
+end
+
 ---@param path string absolute, relative or ~ path from an error message
 ---@param term_buf integer terminal buffer the message appeared in
 ---@return string|nil # absolute path to an existing file
@@ -1144,12 +1181,23 @@ end
 ---@param ft string filetype whose REPL to reuse or start
 ---@return integer|nil buf, integer|nil win
 local function get_or_start_repl(ft)
+  local repl_cmd = repl_spec(ft)
+
   local buf = find_live_terminal("repl_ft", ft)
   if buf then
+    -- the buffer runs a persistent shell; if the REPL inside it has exited,
+    -- reusing it as-is would send source straight to the shell prompt, so
+    -- relaunch the REPL first (its cwd is wherever the shell was left)
+    if repl_cmd and shell_has_child(buf) == false then
+      term_send_command(buf, repl_cmd)
+      if not wait_for_repl(buf) then
+        vim.notify("REPL is not running: " .. repl_cmd, vim.log.levels.ERROR)
+        return
+      end
+    end
     return buf, ensure_window_for_buf(buf)
   end
 
-  local repl_cmd = repl_spec(ft)
   if not repl_cmd then
     vim.notify("No REPL configured for filetype: " .. ft, vim.log.levels.WARN)
     return
@@ -1164,6 +1212,13 @@ local function get_or_start_repl(ft)
   term_cd(buf, dir)
   term_send_command(buf, repl_cmd)
   vim.b[buf].repl_ft = ft
+  -- make sure the REPL actually came up before anything is sent to it; a
+  -- missing or failing command would otherwise leave source at the shell
+  if not wait_for_repl(buf) then
+    vim.notify("REPL failed to start: " .. repl_cmd, vim.log.levels.ERROR)
+    vim.api.nvim_buf_delete(buf, { force = true })
+    return
+  end
   return buf, win
 end
 

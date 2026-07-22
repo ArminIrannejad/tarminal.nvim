@@ -1331,4 +1331,37 @@ describe("tarminal", function()
     vim.fn.delete(file)
     vim.fn.delete(script)
   end)
+
+  it("does not send REPL input to the shell when the REPL fails to start", function()
+    -- the guard reads /proc children; skip where the kernel does not expose it
+    if vim.fn.filereadable("/proc/self/task/" .. vim.fn.getpid() .. "/children") == 0 then
+      return
+    end
+    -- a real shell so `false` runs and exits, leaving the bare prompt that the
+    -- cell must not be sent to
+    tarminal.setup({ follow_repl = "none", shell = "/bin/sh", repls = { lua = "false" } })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)" })
+    vim.bo.filetype = "lua"
+
+    local errored = false
+    local orig = vim.notify
+    vim.notify = function(_, level) ---@diagnostic disable-line: duplicate-set-field
+      if level == vim.log.levels.ERROR then
+        errored = true
+      end
+    end
+    local ok = pcall(tarminal.send_cell)
+    vim.notify = orig
+
+    assert.is_true(ok)
+    assert.is_true(errored)
+    -- the failed REPL buffer is torn down, not left to receive shell input
+    local repl
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].repl_ft ~= nil then
+        repl = buf
+      end
+    end
+    assert.is_nil(repl)
+  end)
 end)
