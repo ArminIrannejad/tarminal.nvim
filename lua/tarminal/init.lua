@@ -357,11 +357,22 @@ local function resolve_file_suffix(candidate, term_buf)
       end
     end
 
-    local _, prefix_end = trimmed:find("%s+", start)
-    if not prefix_end then
+    -- advance past the next prefix boundary and retry: a run of whitespace,
+    -- or an opening bracket a path can be glued to without a space, like a
+    -- Java stack frame's `pkg.Main.run(Main.java:12)`. The whole candidate is
+    -- always tried first (longest suffix wins), so a real path that itself
+    -- contains a bracket — `/tmp/report(audit).c` — still resolves before any
+    -- split is taken.
+    local _, ws_end = trimmed:find("%s+", start)
+    local bracket = trimmed:find("[%(%[<]", start)
+    local next_start = ws_end and ws_end + 1
+    if bracket and (not next_start or bracket + 1 < next_start) then
+      next_start = bracket + 1
+    end
+    if not next_start then
       return
     end
-    start = prefix_end + 1
+    start = next_start
   end
 end
 

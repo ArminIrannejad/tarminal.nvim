@@ -398,6 +398,25 @@ describe("tarminal", function()
     assert.equals(output:find(file, 1, true), span_start)
   end)
 
+  it("unwraps a path glued to a prefix by a bracket (Java stack frame)", function()
+    local dir = vim.fn.tempname()
+    local file = dir .. "/Main.java"
+    vim.fn.mkdir(dir, "p")
+    vim.fn.writefile({ "class Main {}" }, file)
+
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    -- the source name is glued to the frame's method with no space before "("
+    local output = "\tat pkg.Main.run(" .. file .. ":123)"
+    local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(dir, "rf")
+
+    assert.equals(file, parsed_file)
+    assert.equals(123, line)
+    assert.is_nil(col)
+    -- the highlight span starts at the path, past the glued "run("
+    assert.equals(output:find(file, 1, true), span_start)
+  end)
+
   it("parses Node.js syntax error locations without a column", function()
     local file = vim.fn.tempname() .. ".js"
     vim.fn.writefile({ "function broken( {}" }, file)
