@@ -41,9 +41,10 @@ local uv = vim.uv or vim.loop
 --- compile-then-run from the command's program name (see `compilers`).
 ---@class tarminal.Runner
 ---@field cmd string command the file is run with
----@field compile boolean|nil true: build with `-o` first, then run the
----binary (for compilers not recognized by name); false: never compile,
----run the file with the command directly
+---@field run_binary boolean|nil true: build with `-o` first, then run the
+---produced binary (for compilers not recognized by name); false: invoke the
+---command on the file directly — which may still compile, e.g. `zig build-exe
+---foo.zig`, but no separate binary is produced and run
 ---@field args string|nil flags appended *after* the file, for tools that
 ---require `<cmd> <file> <flag>` order — e.g. `odin run foo.odin -file`,
 ---where the source must come before `-file`
@@ -84,7 +85,7 @@ local defaults = {
   },
   -- only compilers invoked as `cmd <source> -o <out>` producing a runnable
   -- binary belong here; others (javac, luac, go build, zig build-exe, ...)
-  -- need a runner with an explicit `compile` flag
+  -- need a runner with an explicit `run_binary` flag
   compilers = {
     "cc",
     "gcc",
@@ -871,17 +872,17 @@ local function is_compiler(runner)
 end
 
 --- Normalize a `runners` entry (see tarminal.Runner).
----@return string|nil cmd, boolean compile, string|nil args
+---@return string|nil cmd, boolean run_binary, string|nil args
 local function runner_spec(ft)
   local spec = M.config.runners[ft]
-  local cmd, compile, args = spec, nil, nil
+  local cmd, run_binary, args = spec, nil, nil
   if type(spec) == "table" then
-    cmd, compile, args = spec.cmd, spec.compile, spec.args
+    cmd, run_binary, args = spec.cmd, spec.run_binary, spec.args
   end
-  if compile == nil then
-    compile = cmd ~= nil and is_compiler(cmd)
+  if run_binary == nil then
+    run_binary = cmd ~= nil and is_compiler(cmd)
   end
-  return cmd, compile, args
+  return cmd, run_binary, args
 end
 
 --- Shell command that runs a file: `python foo.py`, or for a compiling
@@ -894,7 +895,7 @@ end
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
-  local runner, compile, args = runner_spec(ctx.ft)
+  local runner, run_binary, args = runner_spec(ctx.ft)
   if not runner then
     return
   end
@@ -902,7 +903,7 @@ local function build_runner_command(ctx)
   local suffix = (args and args ~= "") and (" " .. args) or ""
   local time = M.config.time_runs and vim.fn.executable("time") == 1 and "time " or ""
   local file = vim.fn.shellescape(ctx.file)
-  if compile then
+  if run_binary then
     local stem = ctx.stem
     if stem == vim.fn.fnamemodify(ctx.file, ":t") then
       stem = stem .. ".out"

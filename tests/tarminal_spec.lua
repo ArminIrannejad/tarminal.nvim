@@ -152,10 +152,10 @@ describe("tarminal", function()
     assert.equals("cc '/tmp/prog' -o 'prog.out' && ./'prog.out'", command)
   end)
 
-  it("compiles table runners with an explicit compile flag", function()
+  it("builds and runs the binary when a table runner sets run_binary", function()
     tarminal.setup({
       time_runs = false,
-      runners = { zig = { cmd = "zig build-exe", compile = true } },
+      runners = { zig = { cmd = "zig build-exe", run_binary = true } },
     })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local command = build({
@@ -167,17 +167,17 @@ describe("tarminal", function()
     assert.equals("zig build-exe '/tmp/example.zig' -o 'example' && ./'example'", command)
   end)
 
-  it("runs directly when a table runner sets compile = false", function()
+  it("runs the file directly when a table runner sets run_binary = false", function()
     tarminal.setup({
       time_runs = false,
-      runners = { c = { cmd = "cc", compile = false } },
+      runners = { c = { cmd = "cc", run_binary = false } },
     })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("cc '/tmp/example.c'", build(ctx))
   end)
 
-  it("infers compiling by name for a table runner without a compile flag", function()
+  it("infers running the binary by name for a table runner without a run_binary flag", function()
     tarminal.setup({ time_runs = false, runners = { c = { cmd = "clang -Wall" } } })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
@@ -195,7 +195,7 @@ describe("tarminal", function()
   it("places args after the source in a compiling runner", function()
     tarminal.setup({
       time_runs = false,
-      runners = { c = { cmd = "cc", args = "-lm", compile = true } },
+      runners = { c = { cmd = "cc", args = "-lm", run_binary = true } },
     })
     local build = get_upvalue(tarminal.run, "build_runner_command")
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }

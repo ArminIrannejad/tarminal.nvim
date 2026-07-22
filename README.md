@@ -152,13 +152,15 @@ table with an explicit `compile` flag — no need to touch the `compilers` list:
 
 ```lua
 runners = {
-  zig = { cmd = "zig build-exe", compile = true },  -- build with -o, run the binary
-  c   = { cmd = "cc", compile = false },            -- force running the file directly
+  zig = { cmd = "zig build-exe", run_binary = true },  -- build with -o, run the binary
+  c   = { cmd = "cc", run_binary = false },            -- just invoke the command on the file
 }
 ```
 
-With `compile` unset (or a plain string entry), compile-then-run is inferred
-from the command's program name via `compilers` as above.
+`run_binary = false` still lets the command compile (`zig build-exe foo.zig`
+does); it only skips producing and running a separate `-o` binary. With
+`run_binary` unset (or a plain string entry), it is inferred from the command's
+program name via `compilers` as above.
 
 A table entry can also carry `args`, appended *after* the file, for tools that
 require `<cmd> <file> <flag>` order rather than accepting the file last. This is
