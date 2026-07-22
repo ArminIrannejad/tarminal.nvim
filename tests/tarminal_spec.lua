@@ -428,6 +428,10 @@ describe("tarminal", function()
     cmd, bracketed = spec("ocaml")
     assert.equals("ocaml", cmd)
     assert.is_false(bracketed)
+    -- ghci's line editor mishandles bracketed paste, so the default sends raw
+    cmd, bracketed = spec("haskell")
+    assert.equals("ghci", cmd)
+    assert.is_false(bracketed)
   end)
 
   it("wraps REPL sends in bracketed paste by default", function()

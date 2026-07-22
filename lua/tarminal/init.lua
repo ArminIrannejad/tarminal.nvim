@@ -99,7 +99,14 @@ local defaults = {
   repls = {
     python = "ipython",
     lua = "lua -i",
-    haskell = "ghci",
+    javascript = "node",
+    ruby = "irb",
+    julia = "julia",
+    r = "R",
+    -- ghci's line editor (haskeline) does not understand bracketed paste and
+    -- swallows a block wrapped in the paste escapes, so send it raw — one line
+    -- at a time, or a `:{ ... :}` block you select yourself
+    haskell = { cmd = "ghci", bracketed_paste = false },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   quickfix = {

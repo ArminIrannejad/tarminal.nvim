@@ -126,7 +126,11 @@ require("tarminal").setup({
   repls = {                             -- filetype -> interactive REPL command
     python = "ipython",
     lua = "lua -i",
-    haskell = "ghci",
+    javascript = "node",
+    ruby = "irb",
+    julia = "julia",
+    r = "R",
+    haskell = { cmd = "ghci", bracketed_paste = false },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   quickfix = {                          -- errors_to_quickfix behavior
@@ -188,9 +192,11 @@ Debian/Ubuntu default) in bash; fish does this out of the box. Text sent
 what you want.
 
 A `repls` entry is the REPL command, or a table `{ cmd = ..., bracketed_paste
-= false }` for REPLs that read raw stdin and would see the bracketed-paste
-escape sequences as input — like the stock `ocaml` toplevel (the default
-entry). With `bracketed_paste = false` the text is sent unwrapped.
+= false }` for REPLs whose line editor does not understand bracketed paste and
+would see the escape sequences as input — the stock `ocaml` toplevel and `ghci`
+(whose haskeline line editor swallows a pasted block) are the bundled examples.
+With `bracketed_paste = false` the text is sent unwrapped, one line at a time,
+so send a multi-line block as a `:{ ... :}` region you select yourself.
 
 The `shell` command is split on whitespace and spawned directly, without a
 wrapper shell — any POSIX-compatible shell works. (With a shell that lacks
