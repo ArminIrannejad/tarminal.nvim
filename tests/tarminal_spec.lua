@@ -430,6 +430,44 @@ describe("tarminal", function()
     assert.is_nil(col)
   end)
 
+  it("classifies severity from the error pattern's type capture", function()
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int main() {}" }, file)
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local buf = vim.api.nvim_get_current_buf()
+
+    local function sev(text)
+      return select(6, parse(text, buf))
+    end
+    assert.equals(2, sev(file .. ":1:1: error: boom"))
+    assert.equals(1, sev(file .. ":1:1: warning: hmm"))
+    assert.equals(0, sev(file .. ":1:1: note: fyi"))
+    -- a bare location with no severity word is treated as an error
+    assert.equals(2, sev(file .. ":1:1"))
+    vim.fn.delete(file)
+  end)
+
+  it("matches a user-added pattern and trusts it with resolve = false", function()
+    tarminal.setup({
+      error_patterns = {
+        { pattern = "at (%S+) line (%d+)", file = 1, lnum = 2, resolve = false },
+      },
+    })
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    -- the path need not exist on disk when the pattern sets resolve = false
+    local file, line = parse("Died at /no/such/script.pl line 42.", vim.api.nvim_get_current_buf())
+    assert.equals("/no/such/script.pl", file)
+    assert.equals(42, line)
+  end)
+
+  it("prepends user error_patterns to the built-ins", function()
+    tarminal.setup({ error_patterns = { { pattern = "X(%d+)", file = 1 } } })
+    local pats = tarminal.config.error_patterns
+    assert.equals("X(%d+)", pats[1].pattern)
+    -- the built-ins survive after the user's entry
+    assert.equals('File "([^"]+)", line (%d+)', pats[#pats].pattern)
+  end)
+
   it("uses display width when rebuilding wrapped terminal lines", function()
     local logical_line_at = get_upvalue(tarminal.jump_to_error, "logical_line_at")
     local logical, first, last = logical_line_at({ "éé", "tail" }, 2, 4)
@@ -1158,6 +1196,40 @@ describe("tarminal", function()
     -- the first run's banner must survive the second run's screen push
     assert.is_true(has_banner(first))
     vim.fn.delete(file)
+  end)
+
+  it("collects only locations at or above error_threshold into quickfix", function()
+    vim.fn.setqflist({})
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    -- a script (no prompt or command echo) prints a warning then an error
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      ("printf '%%s:1:1: warning: w\\n%%s:2:1: error: e\\n' %s %s"):format(file, file),
+      "sleep 10",
+    }, script)
+    tarminal.setup({
+      shell = "sh " .. script,
+      error_threshold = 2, -- errors only
+      quickfix = { open = false, close_terminal = false },
+    })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1: error", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    tarminal.errors_to_quickfix()
+    local qf = vim.fn.getqflist()
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+    -- the warning is below threshold; only the error is collected
+    assert.equals(1, #qf)
+    assert.equals(2, qf[1].lnum)
+    assert.equals("E", qf[1].type)
   end)
 
   it("refuses error navigation outside a terminal buffer", function()
