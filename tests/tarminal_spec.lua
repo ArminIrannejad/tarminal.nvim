@@ -1332,6 +1332,33 @@ describe("tarminal", function()
     vim.fn.delete(script)
   end)
 
+  it("hides the terminal when closing it for quickfix as the only window", function()
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:1:1: error\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script, quickfix = { open = true, close_terminal = true } })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    vim.cmd("wincmd o") -- the terminal is the only window
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(0))
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":1:1", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    tarminal.errors_to_quickfix()
+
+    -- the terminal is no longer displayed; the quickfix window took over
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      assert.is_not.equals(term_buf, vim.api.nvim_win_get_buf(win))
+    end
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
   it("keeps the last run when a later run has no configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

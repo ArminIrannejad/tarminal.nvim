@@ -845,8 +845,12 @@ function M.errors_to_quickfix()
   local qf = M.config.quickfix
   if qf.close_terminal then
     local win = find_win_for_buf(term_buf)
-    if win then
-      pcall(vim.api.nvim_win_close, win, false)
+    -- last window (E444): swap in an empty buffer instead, like toggle(), so
+    -- the terminal doesn't stay visible next to the quickfix window
+    if win and not pcall(vim.api.nvim_win_close, win, false) then
+      vim.api.nvim_win_call(win, function()
+        vim.cmd("enew")
+      end)
     end
   end
   if qf.open then
