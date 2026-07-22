@@ -4,87 +4,58 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
---- Where focus goes after sending something to a terminal:
 ---@alias tarminal.Follow
 ---| '"none"'   # stay in the code window
----| '"focus"'  # move to the terminal window, normal mode
----| '"insert"' # move to the terminal window and enter terminal-mode
+---| '"focus"'  # terminal window, normal mode
+---| '"insert"' # terminal window, terminal-mode
 
---- Where the terminal split opens (always full-width):
 ---@alias tarminal.SplitPosition
----| '"auto"'   # follow 'splitbelow': bottom when set, top otherwise
----| '"bottom"' # bottom, regardless of 'splitbelow'
----| '"top"'    # top, regardless of 'splitbelow'
+---| '"auto"'   # follow 'splitbelow'
+---| '"bottom"' # bottom, always
+---| '"top"'    # top, always
 
 ---@class tarminal.Config
----@field split_height integer height of the terminal split
+---@field split_height integer
 ---@field split_position tarminal.SplitPosition
 ---@field shell string
 ---@field follow_run tarminal.Follow
 ---@field follow_repl tarminal.Follow
----@field autosave boolean write the buffer before running or exec'ing it; false runs whatever is on disk
----@field park_on_error boolean after a run, highlight error locations and park the cursor on the first one
+---@field autosave boolean write the buffer before a run; false uses disk
+---@field park_on_error boolean highlight errors and park on the first
 ---@field cell_marker string line that delimits REPL cells
----@field time_runs boolean `time` the run when a `time` binary is installed (for compiled files: the produced binary)
----@field banner boolean print a `===== RUN[n]: <time> =====` line before each run's output and pin the view to it; false prints nothing extra
----@field runners table<string, string|tarminal.Runner> filetype -> command the file is run with; compilers are recognized by name
----@field compilers string[] program names treated as compilers: the file is built with `-o` first, then the binary is run
----@field repls table<string, string|tarminal.Repl> filetype -> interactive REPL command
----@field error_patterns tarminal.ErrorPattern[] tried in order to recognize a
----file location in terminal output, before the built-in embedded-path fallback
----@field error_threshold integer minimum severity to park on, step between
----(next_error/prev_error), or collect into quickfix: 0 (note/info) | 1
----(warning) | 2 (error). An explicit jump_to_error on the current line always
----jumps, whatever the severity.
+---@field time_runs boolean `time` the run when a time binary exists
+---@field banner boolean print a RUN[n] banner before each run
+---@field runners table<string, string|tarminal.Runner> filetype -> run command
+---@field compilers string[] program names built with `-o` then run
+---@field repls table<string, string|tarminal.Repl> filetype -> REPL command
+---@field error_patterns tarminal.ErrorPattern[] error formats, tried in order
+---@field error_threshold integer min severity to park/step/collect (0 note, 1 warn, 2 error)
 ---@field quickfix tarminal.Quickfix
 
---- What errors_to_quickfix does besides populating the quickfix list.
 ---@class tarminal.Quickfix
----@field open boolean open the quickfix window after collecting
----@field close_terminal boolean close the terminal window after collecting
+---@field open boolean open quickfix after collecting
+---@field close_terminal boolean close the terminal after collecting
 
---- A pattern that recognizes a file location in terminal output. The Lua
---- pattern is matched against a whole (unwrapped) line; the `file`, `lnum` and
---- `col` fields are capture indices in it.
 ---@class tarminal.ErrorPattern
----@field pattern string Lua pattern with a capture for at least the file
----@field file integer capture index of the file path
----@field lnum integer|nil capture index of the line number
+---@field pattern string Lua pattern matched against a whole line
+---@field file integer capture index of the file
+---@field lnum integer|nil capture index of the line
 ---@field col integer|nil capture index of the column
----@field type integer|string|nil capture index of a severity word
----("error"/"warning"/"note"), or a fixed "error"|"warning"|"info"; absent ⇒
----treated as an error
----@field resolve boolean|nil default true: require the captured path to exist
----on disk (keeps false positives out). false: trust the pattern and take the
----path as captured, so locations that don't resolve against the shell cwd
----(output from a subdir, another machine) are still caught
+---@field type integer|string|nil capture index of a severity word, or a fixed severity
+---@field resolve boolean|nil default true: file must exist on disk; false trusts the path
 
---- A `runners` entry with options; a plain command string infers
---- compile-then-run from the command's program name (see `compilers`).
 ---@class tarminal.Runner
----@field cmd string command the file is run with
----@field run_binary boolean|nil true: build with `-o` first, then run the
----produced binary (for compilers not recognized by name); false: invoke the
----command on the file directly — which may still compile, e.g. `zig build-exe
----foo.zig`, but no separate binary is produced and run
----@field args string|nil flags appended *after* the file, for tools that
----require `<cmd> <file> <flag>` order — e.g. `odin run foo.odin -file`,
----where the source must come before `-file`
+---@field cmd string run command
+---@field run_binary boolean|nil true: build with `-o` then run the binary
+---@field args string|nil flags appended after the file
 
---- A `repls` entry with options; a plain command string means all defaults.
 ---@class tarminal.Repl
----@field cmd string interactive REPL command
----@field bracketed_paste boolean|nil false for REPLs that read raw stdin and
----would see the paste escape sequences as input (the stock ocaml toplevel)
----@field block_open string|nil marker that opens a multi-line block, sent on its
----own line before a multi-line selection (ghci's `:{`); pairs with block_close
----@field block_close string|nil marker that closes the block (ghci's `:}`)
+---@field cmd string REPL command
+---@field bracketed_paste boolean|nil false to send raw (can't parse paste escapes)
+---@field block_open string|nil marker opening a multi-line block (ghci `:{`)
+---@field block_close string|nil marker closing it (ghci `:}`)
 
--- Path characters for the built-in error patterns: everything except
--- whitespace, ':', and the brackets/quotes a message wraps a path in, so an
--- embedded `run(Main.java:12)` or `[error] /a/B.scala:3:1` yields just the
--- path. Paths with spaces or parentheses fall through to the resolve-based
--- fallback in parse_error_line instead.
+-- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback)
 local PATH = "([^%s:%(%)%[%]<>'\"]+)"
 
 local defaults = {
@@ -110,9 +81,7 @@ local defaults = {
     rust = "rustc",
     odin = { cmd = "odin run", args = "-file" },
   },
-  -- only compilers invoked as `cmd <source> -o <out>` producing a runnable
-  -- binary belong here; others (javac, luac, go build, zig build-exe, ...)
-  -- need a runner with an explicit `run_binary` flag
+  -- only `cmd <src> -o <out>` compilers; others need a run_binary runner
   compilers = {
     "cc",
     "gcc",
@@ -137,8 +106,7 @@ local defaults = {
     haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
-  -- tried in order; the first pattern whose captured path resolves wins the
-  -- leftmost location on the line. Add your own for tools these miss.
+  -- tried in order; add your own for tools these miss
   error_patterns = {
     { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
     { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
@@ -174,8 +142,6 @@ local function find_win_for_buf(buf)
   if not buf then
     return nil
   end
-  -- current tab only: the buffer is shared, but toggling or jumping to a
-  -- split in another tab would be surprising
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if vim.api.nvim_win_get_buf(w) == buf then
       return w
@@ -201,8 +167,6 @@ local function is_terminal_alive(buf)
   return vim.fn.jobwait({ job }, 0)[1] == -1
 end
 
---- Terminal buffer tagged with `b:<var_name> == expected`; one whose job
---- has exited is deleted instead.
 ---@return integer|nil buf
 local function find_live_terminal(var_name, expected)
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -220,11 +184,7 @@ end
 ---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
   local win = terminal_split()
-  -- jobstart in a fresh buffer instead of :terminal, whose Ex parsing would
-  -- expand % and split on |. The command is passed as a list so the shell
-  -- is spawned directly: wrapped in ['shell', '-c', cmd], a forking shell
-  -- (dash) would make jobpid point at the wrapper, breaking the
-  -- foreground-job check and the /proc cwd lookup.
+  -- jobstart (not :terminal); list form spawns the shell directly (jobpid = shell)
   vim.cmd("enew")
   local buf = vim.api.nvim_get_current_buf()
   local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
@@ -234,7 +194,6 @@ local function open_shell_term(name)
   else
     ok, job = pcall(vim.fn.termopen, cmd)
   end
-  -- don't pile up empty splits, and report it instead of propagating a crash.
   if not ok or type(job) ~= "number" or job <= 0 then
     pcall(vim.api.nvim_win_close, win, true)
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
@@ -257,8 +216,7 @@ local function term_send(buf, text)
   vim.fn.chansend(get_job_id(buf), text)
 end
 
---- Type a command at the shell prompt. The leading space keeps it out of
---- shell history where ignorespace/HIST_IGNORE_SPACE is set.
+-- leading space keeps it out of shell history (ignorespace)
 local function term_send_command(buf, cmd)
   term_send(buf, " " .. cmd .. "\n")
 end
@@ -284,9 +242,6 @@ local function focus_after_send(term_win, code_win, follow)
   end
 end
 
---- Working directory of the terminal's shell (via /proc, falling back to the
---- last directory we cd'd it into), so relative paths in errors resolve.
----@param buf integer terminal buffer
 ---@return string|nil
 local function term_cwd(buf)
   local job = get_job_id(buf)
@@ -302,12 +257,8 @@ local function term_cwd(buf)
   return vim.b[buf].term_cwd
 end
 
---- Whether the shell has a foreground job: while a command runs its process
---- group owns the pty, at the prompt the shell's own group does. Read from
---- /proc/<pid>/stat (fields after the comm: state ppid pgrp session tty_nr
---- tpgid). Some shells (dash) leave tpgid on the exited child's group, so a
---- foreground group with no living processes counts as idle.
----@return boolean|nil busy nil when it cannot be determined
+-- foreground job? pgrp vs tpgid from /proc/stat; dead group with no procs = idle
+---@return boolean|nil busy nil when undeterminable
 local function term_busy(buf)
   local job = get_job_id(buf)
   if not job then
@@ -323,7 +274,7 @@ local function term_busy(buf)
   end
   local stat = f:read("*a") or ""
   f:close()
-  -- the comm field may itself contain ")": parse after the last one
+  -- comm may contain ")": parse after the last
   local rest = stat:match(".*%)%s+(.*)")
   if not rest then
     return nil
@@ -339,9 +290,7 @@ local function term_busy(buf)
   return uv.kill(-tpgid, 0) == 0
 end
 
---- Whether the terminal's shell has a live child — the REPL it launched. Read
---- from /proc children rather than tpgid so it holds even for shells without
---- job control (dash), where term_busy can't tell. nil when it can't be read.
+-- shell has a live child (the REPL)? via /proc children; works without job control
 ---@return boolean|nil
 local function shell_has_child(buf)
   local job = get_job_id(buf)
@@ -361,11 +310,7 @@ local function shell_has_child(buf)
   return vim.trim(kids) ~= ""
 end
 
---- Wait for a freshly launched REPL to take over the shell it started in. A
---- real REPL becomes (and stays) a child of the shell; a missing or
---- instantly-exiting command leaves at most a flicker, so re-check after the
---- wait to reject it. Returns true when it can't be determined (no /proc
---- children) so the guard degrades to a no-op rather than blocking sends.
+-- wait for the REPL to become the shell's child; re-check to reject a flicker
 ---@return boolean
 local function wait_for_repl(buf)
   if shell_has_child(buf) == nil then
@@ -376,9 +321,7 @@ local function wait_for_repl(buf)
   end, 20) and shell_has_child(buf) == true
 end
 
----@param path string absolute, relative or ~ path from an error message
----@param term_buf integer terminal buffer the message appeared in
----@return string|nil # absolute path to an existing file
+---@return string|nil
 local function resolve_file(path, term_buf)
   if path:sub(1, 1) == "~" then
     path = vim.fn.expand(path)
@@ -401,7 +344,7 @@ local function resolve_file(path, term_buf)
   end
 end
 
----@return string|nil path, integer|nil offset byte offset of the path in `candidate`
+---@return string|nil path, integer|nil offset byte offset of the path
 local function resolve_file_suffix(candidate, term_buf)
   local trimmed = vim.trim(candidate)
   local trim_offset = candidate:find(trimmed, 1, true) - 1
@@ -433,18 +376,11 @@ local function resolve_file_suffix(candidate, term_buf)
   end
 end
 
---- Severity words rank by how serious they are; an unknown or absent word is
---- an error, matching "a bare location is an error".
 local SEVERITY_RANK = { note = 0, info = 0, warning = 1, warn = 1, error = 2 }
 local function severity_rank(word)
   return word and SEVERITY_RANK[word:lower()] or 2
 end
 
---- Try the configured error_patterns against `line`; return the leftmost
---- location whose file resolves (or, for a pattern with resolve == false, the
---- path as captured). See tarminal.ErrorPattern.
----@param line string
----@param term_buf integer
 ---@return string|nil file, integer|nil lnum, integer|nil col,
 ---        integer|nil span_s, integer|nil span_e, integer|nil sev
 local function match_patterns(line, term_buf)
@@ -452,7 +388,7 @@ local function match_patterns(line, term_buf)
   for _, pat in ipairs(M.config.error_patterns) do
     local init = 1
     while true do
-      -- caps[1], caps[2] are the whole-match bounds; capture N is caps[2+N]
+      -- caps[1..2] = match bounds; capture N = caps[2+N]
       local caps = { line:find(pat.pattern, init) }
       local s, e = caps[1], caps[2]
       if not s then
@@ -475,9 +411,9 @@ local function match_patterns(line, term_buf)
             sev = severity_rank(word),
           }
         end
-        break -- this pattern's leftmost hit; any later one is further right
+        break -- leftmost hit for this pattern
       end
-      init = e + 1 -- captured path did not resolve; keep scanning this pattern
+      init = e + 1 -- didn't resolve; keep scanning
     end
   end
   if best then
@@ -485,11 +421,8 @@ local function match_patterns(line, term_buf)
   end
 end
 
----@param line string
----@param term_buf integer
 ---@return string|nil file, integer|nil lnum, integer|nil col
----@return integer|nil span_s, integer|nil span_e
----@return integer|nil sev severity rank (see severity_rank)
+---@return integer|nil span_s, integer|nil span_e, integer|nil sev
 local function parse_error_line(line, term_buf)
   local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf)
   if file then
@@ -498,9 +431,7 @@ local function parse_error_line(line, term_buf)
 
   local init = 1
   while true do
-    -- keep quotes out (python's `File "..."` is a pattern above) but allow
-    -- parens so paths like `/tmp/foo(audit).c` parse; a path the message
-    -- wraps in `(...)` is unwrapped by resolve_file_suffix.
+    -- allow parens (paths like `/tmp/foo(audit).c`); resolve_file_suffix unwraps
     local s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
     if not s then
       return
@@ -513,21 +444,12 @@ local function parse_error_line(line, term_buf)
   end
 end
 
---- Width the terminal wraps its output at. The window's current width is
---- right: nvim 0.10+ re-wraps terminal content on resize, so buffer lines
---- follow the live width.
 ---@return integer
 local function pty_width(term_buf)
   local win = find_win_for_buf(term_buf)
   return win and vim.api.nvim_win_get_width(win) or vim.o.columns
 end
 
---- Terminal output hard-wraps at the PTY width, splitting long paths across
---- physical lines. Rebuild the logical line around `row` by joining
---- full-width lines with their continuations.
----@param lines string[] physical buffer lines
----@param row integer 1-based index into lines
----@param width integer PTY width
 ---@return string logical, integer first_row, integer last_row
 local function logical_line_at(lines, row, width)
   local first, last = row, row
@@ -540,9 +462,6 @@ local function logical_line_at(lines, row, width)
   return table.concat(lines, "", first, last), first, last
 end
 
---- Window a jump should land in: the code window we last ran from, else
---- the previous window, else any file window — current tab only, so a jump
---- never switches tabs.
 ---@return integer|nil win
 local function pick_code_win()
   local wins = {}
@@ -564,9 +483,7 @@ local function pick_code_win()
   end
 end
 
---- Error navigation reads the current buffer as terminal output; refuse
---- anything that isn't one of tarminal's own terminals (filetype "tarminal"),
---- so a plain :terminal is never parsed, jumped in, or closed.
+-- only tarminal's own terminals (ft "tarminal"); never a plain :terminal
 ---@return integer|nil term_buf
 local function current_term_buf()
   local buf = vim.api.nvim_get_current_buf()
@@ -577,8 +494,6 @@ local function current_term_buf()
   return buf
 end
 
---- Jump to the file location on the current terminal line (mapped to <CR>
---- in terminal-buffer normal mode).
 function M.jump_to_error()
   local term_buf = current_term_buf()
   if not term_buf then
@@ -607,16 +522,14 @@ function M.jump_to_error()
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
-  -- a location without a line number (a file-only pattern) lands on line 1;
-  -- linkers emit "file:0:" locations — clamp both ends of the range
+  -- no line number -> line 1; linkers emit line 0 — clamp both ends
   lnum = math.min(math.max(lnum or 1, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
 end
 
 local WATCH_INTERVAL = 200
--- of terminal *silence* — new output resets it, so long builds stay watched
-local WATCH_TIMEOUT = 30000
+local WATCH_TIMEOUT = 30000 -- of silence; new output resets it
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
@@ -641,9 +554,7 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
   end
 end
 
---- Row of the last printed run banner. The token is assembled by printf at
---- run time, so the echoed command never contains it; requiring ===== at
---- the start of the line guards against output that quotes a banner.
+-- row of the last RUN banner (^===== guards against output quoting it)
 ---@return integer|nil row
 local function find_banner_row(lines, banner_token)
   for i = #lines, 1, -1 do
@@ -653,9 +564,7 @@ local function find_banner_row(lines, banner_token)
   end
 end
 
---- Last non-blank row — the prompt line, before a run is sent. Terminal
---- buffers keep trailing blank screen lines, so line count would overshoot.
----@return integer row 0 when the buffer is entirely blank
+---@return integer row 0 when entirely blank
 local function last_content_row(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   for i = #lines, 1, -1 do
@@ -666,14 +575,8 @@ local function last_content_row(buf)
   return 0
 end
 
---- Poll the output printed after this run's banner (bannerless: after
---- `start_row`): pin the view to the banner, highlight error locations and
---- park the cursor on the first one. Finishes once the output has settled
---- and the shell holds the pty foreground again; gives up quietly after
---- WATCH_TIMEOUT of silence (no banner ever appeared, or a shell without
---- job control).
----@param banner_token string|nil marker this run prints before its output
----@param start_row integer|nil row the output starts after, when bannerless
+---@param banner_token string|nil marker printed before the output
+---@param start_row integer|nil row output starts after, when bannerless
 local function watch_run_errors(term_buf, banner_token, start_row)
   if M._watch_timer then
     M._watch_timer:stop()
@@ -732,7 +635,7 @@ local function watch_run_errors(term_buf, banner_token, start_row)
       seen = true
 
       local win = find_win_for_buf(term_buf)
-      -- don't steal the cursor while typing in the terminal
+      -- don't steal the cursor while typing
       local typing = win == vim.api.nvim_get_current_win() and vim.api.nvim_get_mode().mode:sub(1, 1) == "t"
 
       if not pinned then
@@ -751,8 +654,7 @@ local function watch_run_errors(term_buf, banner_token, start_row)
         local logical, first, last = logical_line_at(lines, i, width)
         local file, _, _, span_s, span_e, sev = parse_error_line(logical, term_buf)
         if file then
-          -- every location is highlighted (warnings a distinct color), but the
-          -- cursor only parks on one at or above the severity threshold
+          -- highlight all; park only at/above the threshold
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
           if not parked and sev >= M.config.error_threshold then
             parked = true
@@ -799,8 +701,6 @@ function M.prev_error()
   goto_error(-1)
 end
 
---- Collect the last run's error locations (or the whole scrollback if this
---- terminal never ran anything) into quickfix; see `config.quickfix`.
 function M.errors_to_quickfix()
   local term_buf = current_term_buf()
   if not term_buf then
@@ -817,7 +717,7 @@ function M.errors_to_quickfix()
       start_row = banner_row + 1
     end
   elseif vim.b[term_buf].run_start_row then
-    -- bannerless run: scan below where the prompt was
+    -- bannerless: scan below the prompt
     start_row = vim.b[term_buf].run_start_row + 1
   end
 
@@ -847,8 +747,6 @@ function M.errors_to_quickfix()
   local qf = M.config.quickfix
   if qf.close_terminal then
     local win = find_win_for_buf(term_buf)
-    -- last window (E444): swap in an empty buffer instead, like toggle(), so
-    -- the terminal doesn't stay visible next to the quickfix window
     if win and not pcall(vim.api.nvim_win_close, win, false) then
       vim.api.nvim_win_call(win, function()
         vim.cmd("enew")
@@ -891,16 +789,10 @@ function M.toggle()
   end
 end
 
---- Send a command to the shared shell terminal with the full run treatment:
---- busy guard, banner, error watching, focus handling.
----@param cmd string shell command to run
----@param dir string directory the command runs in
 local function execute_in_shell(cmd, dir)
   local code_win = vim.api.nvim_get_current_win()
 
-  -- a busy foreground command would swallow the send as its stdin — show
-  -- the terminal instead so it can be interrupted. A fresh shell isn't
-  -- checked: its startup files could false-positive.
+  -- a busy shell would eat the send as stdin; show it so it can be interrupted
   local existing = find_live_terminal("is_shell", true)
   if existing and term_busy(existing) then
     ensure_window_for_buf(existing)
@@ -915,8 +807,7 @@ local function execute_in_shell(cmd, dir)
     return
   end
 
-  -- the terminal rewrites screen lines in place; drop highlights left over
-  -- from earlier runs
+  -- terminal rewrites lines in place; drop old highlights
   vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
 
   M._run_id = (M._run_id or 0) + 1
@@ -925,10 +816,7 @@ local function execute_in_shell(cmd, dir)
   if M.config.banner then
     banner = ("RUN[%d]"):format(M._run_id)
 
-    -- Push the screen into scrollback with newlines before homing the
-    -- cursor: unlike an ANSI scroll or `clear`, that keeps previous runs
-    -- scrollable; the watcher pins the view to the banner. The banner token
-    -- is assembled by printf so the echoed command never contains it.
+    -- feed newlines then home cursor: keeps prior runs scrollable (unlike clear)
     local scroll = vim.api.nvim_win_get_height(term_win)
     full = table.concat({
       "cd " .. vim.fn.shellescape(dir),
@@ -937,7 +825,6 @@ local function execute_in_shell(cmd, dir)
       "\n" .. cmd,
     }, " && ")
   else
-    -- no banner, no screen feed: the watcher scans below the prompt line
     start_row = last_content_row(term_buf)
     full = "cd " .. vim.fn.shellescape(dir) .. " && " .. cmd
   end
@@ -959,8 +846,6 @@ end
 ---@field dir string
 ---@field ft string
 
---- Whether the runner's program is a known compiler: matched on the first
---- word, ignoring path and version suffix ("/usr/bin/clang-17" is "clang").
 local function is_compiler(runner)
   local exe = runner:match("%S+") or runner
   exe = exe:match("[^/]+$") or exe
@@ -973,7 +858,6 @@ local function is_compiler(runner)
   return false
 end
 
---- Normalize a `runners` entry (see tarminal.Runner).
 ---@return string|nil cmd, boolean run_binary, string|nil args
 local function runner_spec(ft)
   local spec = M.config.runners[ft]
@@ -1009,9 +893,6 @@ local function build_runner_command(ctx)
   return time .. runner .. " " .. file .. suffix
 end
 
---- Write `buf` if modified; failures are reported so a run doesn't
---- silently use the stale on-disk version. With `autosave` off nothing is
---- written and the run proceeds against whatever is on disk.
 ---@return boolean ok
 local function update_buffer(buf)
   if not M.config.autosave then
@@ -1047,7 +928,7 @@ function M.run()
       vim.notify("Nothing to run from here", vim.log.levels.WARN)
       return
     end
-    -- a re-run executes from disk: save the source buffer if it has edits
+    -- re-run from disk: save the source if edited
     local src = vim.fn.bufnr(ctx.file)
     if src ~= -1 and not update_buffer(src) then
       return
@@ -1056,8 +937,7 @@ function M.run()
 
   local runner_cmd = build_runner_command(ctx)
   if not runner_cmd then
-    -- don't remember an unsupported file: a later re-run from the terminal
-    -- should still repeat the last file that actually ran
+    -- don't remember an unsupported file (keep the last one that ran)
     vim.notify("No runner configured for filetype: " .. ctx.ft, vim.log.levels.WARN)
     return
   end
@@ -1087,7 +967,6 @@ function M.exec(arg, verbatim)
     return
   end
 
-  -- save the current file first, like run()
   if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" and not update_buffer(vim.api.nvim_get_current_buf()) then
     return
   end
@@ -1108,10 +987,7 @@ function M.exec(arg, verbatim)
   execute_in_shell(cmd, M._last_exec_dir)
 end
 
---- getpos() columns point at the first byte of a character; extend `col`
---- to its last byte (clamped) so a trailing multibyte char isn't cut in
---- half.
----@param col integer
+-- extend col to the last byte of its char (getpos gives the first byte)
 ---@return integer
 local function char_end_col(line, col)
   if col > #line then
@@ -1140,12 +1016,7 @@ local function get_visual_selection(visual_mode)
   end
 
   if visual_mode == "\22" then
-    -- a visual block is a *screen-column* rectangle, but the '< '> marks
-    -- store byte columns; with tabs or wide characters a byte column maps
-    -- to a different screen column on each row. Convert the corners to
-    -- screen columns and cut every row at the same columns. Everything is
-    -- derived from strdisplaywidth, so this does not depend on virtcol2col,
-    -- whose byte-offset semantics differ across Neovim versions.
+    -- visual block is a screen-column rect but '< '> store byte cols; cut by screen col
     local lines = vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false)
     local c1 = vim.fn.strdisplaywidth(lines[1]:sub(1, col_start - 1)) + 1
     local c2 = vim.fn.strdisplaywidth(lines[#lines]:sub(1, col_end - 1)) + 1
@@ -1198,9 +1069,7 @@ local function get_or_start_repl(ft)
 
   local buf = find_live_terminal("repl_ft", ft)
   if buf then
-    -- the buffer runs a persistent shell; if the REPL inside it has exited,
-    -- reusing it as-is would send source straight to the shell prompt, so
-    -- relaunch the REPL first (its cwd is wherever the shell was left)
+    -- REPL exited but the shell lives: relaunch it, else source hits the shell
     if repl_cmd and shell_has_child(buf) == false then
       term_send_command(buf, repl_cmd)
       if not wait_for_repl(buf) then
@@ -1225,8 +1094,7 @@ local function get_or_start_repl(ft)
   term_cd(buf, dir)
   term_send_command(buf, repl_cmd)
   vim.b[buf].repl_ft = ft
-  -- make sure the REPL actually came up before anything is sent to it; a
-  -- missing or failing command would otherwise leave source at the shell
+  -- ensure the REPL came up before sending, else source hits the shell
   if not wait_for_repl(buf) then
     vim.notify("REPL failed to start: " .. repl_cmd, vim.log.levels.ERROR)
     vim.api.nvim_buf_delete(buf, { force = true })
@@ -1285,7 +1153,6 @@ local function get_current_cell_range()
     down = down + 1
   end
 
-  -- the cell is what lies strictly between the surrounding markers
   return up + 1, down - 1
 end
 
@@ -1301,7 +1168,6 @@ local function get_current_cell_text()
   return table.concat(lines, "\n") .. "\n"
 end
 
---- Send the cell around the cursor to the filetype's REPL.
 function M.send_cell()
   local code_win = vim.api.nvim_get_current_win()
   local text = get_current_cell_text()
@@ -1325,14 +1191,11 @@ local function define_error_highlight()
   vim.api.nvim_set_hl(0, "TarminalWarning", { fg = warn.fg or "Yellow", bold = true })
 end
 
---- Settings only — tarminal never creates keymaps; map keys yourself to
---- the :Tarminal subcommands or the functions in this module.
----@param opts tarminal.Config|nil merged over the defaults in M.config
+--- Settings only; tarminal never creates keymaps.
+---@param opts tarminal.Config|nil merged over the defaults
 function M.setup(opts)
   opts = opts or {}
-  -- error_patterns is a list: tbl_deep_extend would merge it by index and
-  -- leave stray built-ins behind, so pull it out and prepend the user's
-  -- patterns to the built-ins instead (theirs are tried first).
+  -- error_patterns is a list; prepend user's to built-ins (deep_extend index-merges)
   local extra = opts.error_patterns
   if extra then
     opts = vim.tbl_extend("force", {}, opts) -- shallow copy; don't mutate caller
