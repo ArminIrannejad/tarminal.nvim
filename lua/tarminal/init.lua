@@ -30,12 +30,32 @@ local uv = vim.uv or vim.loop
 ---@field runners table<string, string|tarminal.Runner> filetype -> command the file is run with; compilers are recognized by name
 ---@field compilers string[] program names treated as compilers: the file is built with `-o` first, then the binary is run
 ---@field repls table<string, string|tarminal.Repl> filetype -> interactive REPL command
+---@field error_patterns tarminal.ErrorPattern[] tried in order to recognize a
+---file location in terminal output, before the built-in embedded-path fallback
+---@field error_threshold integer minimum severity to navigate to, park on, or
+---collect into quickfix: 0 (note/info) | 1 (warning) | 2 (error)
 ---@field quickfix tarminal.Quickfix
 
 --- What errors_to_quickfix does besides populating the quickfix list.
 ---@class tarminal.Quickfix
 ---@field open boolean open the quickfix window after collecting
 ---@field close_terminal boolean close the terminal window after collecting
+
+--- A pattern that recognizes a file location in terminal output. The Lua
+--- pattern is matched against a whole (unwrapped) line; the `file`, `lnum` and
+--- `col` fields are capture indices in it.
+---@class tarminal.ErrorPattern
+---@field pattern string Lua pattern with a capture for at least the file
+---@field file integer capture index of the file path
+---@field lnum integer|nil capture index of the line number
+---@field col integer|nil capture index of the column
+---@field type integer|string|nil capture index of a severity word
+---("error"/"warning"/"note"), or a fixed "error"|"warning"|"info"; absent ⇒
+---treated as an error
+---@field resolve boolean|nil default true: require the captured path to exist
+---on disk (keeps false positives out). false: trust the pattern and take the
+---path as captured, so locations that don't resolve against the shell cwd
+---(output from a subdir, another machine) are still caught
 
 --- A `runners` entry with options; a plain command string infers
 --- compile-then-run from the command's program name (see `compilers`).
@@ -57,6 +77,13 @@ local uv = vim.uv or vim.loop
 ---@field block_open string|nil marker that opens a multi-line block, sent on its
 ---own line before a multi-line selection (ghci's `:{`); pairs with block_close
 ---@field block_close string|nil marker that closes the block (ghci's `:}`)
+
+-- Path characters for the built-in error patterns: everything except
+-- whitespace, ':', and the brackets/quotes a message wraps a path in, so an
+-- embedded `run(Main.java:12)` or `[error] /a/B.scala:3:1` yields just the
+-- path. Paths with spaces or parentheses fall through to the resolve-based
+-- fallback in parse_error_line instead.
+local PATH = "([^%s:%(%)%[%]<>'\"]+)"
 
 local defaults = {
   split_height = 12,
@@ -115,6 +142,20 @@ local defaults = {
     haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
+  -- tried in order; the first pattern whose captured path resolves wins the
+  -- leftmost location on the line. Add your own for tools these miss.
+  error_patterns = {
+    -- gcc / clang / rustc / go / lua etc. with a trailing severity word:
+    --   foo.c:12:5: error: ...
+    { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
+    -- the same, no severity word:  foo.c:12:5
+    { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
+    -- make / grep -n and other line-only locations:  path:12:
+    { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
+    -- python / ocaml:  File "foo.py", line 12
+    { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
+  },
+  error_threshold = 0,
   quickfix = {
     open = true,
     close_terminal = true,
@@ -382,34 +423,85 @@ local function resolve_file_suffix(candidate, term_buf)
   end
 end
 
---- First location on the line that points at a real file. Covers
---- cc/go/ghc/lua style ("foo.c:12:5:") and python/ocaml style
---- ('File "foo.py", line 12') messages.
+--- Severity words rank by how serious they are; an unknown or absent word is
+--- an error, matching "a bare location is an error".
+local SEVERITY_RANK = { note = 0, info = 0, warning = 1, warn = 1, error = 2 }
+local function severity_rank(word)
+  return word and SEVERITY_RANK[word:lower()] or 2
+end
+
+--- Try the configured error_patterns against `line`; return the leftmost
+--- location whose file resolves (or, for a pattern with resolve == false, the
+--- path as captured). See tarminal.ErrorPattern.
+---@param line string
+---@param term_buf integer
+---@return string|nil file, integer|nil lnum, integer|nil col,
+---        integer|nil span_s, integer|nil span_e, integer|nil sev
+local function match_patterns(line, term_buf)
+  local best
+  for _, pat in ipairs(M.config.error_patterns) do
+    local init = 1
+    while true do
+      -- caps[1], caps[2] are the whole-match bounds; capture N is caps[2+N]
+      local caps = { line:find(pat.pattern, init) }
+      local s, e = caps[1], caps[2]
+      if not s then
+        break
+      end
+      local raw = caps[2 + pat.file]
+      local path = resolve_file(raw, term_buf)
+      if not path and pat.resolve == false then
+        path = raw:sub(1, 1) == "~" and vim.fn.expand(raw) or raw
+      end
+      if path then
+        if not best or s < best.s then
+          local word = type(pat.type) == "number" and caps[2 + pat.type] or pat.type
+          best = {
+            file = path,
+            lnum = pat.lnum and tonumber(caps[2 + pat.lnum]),
+            col = pat.col and tonumber(caps[2 + pat.col]),
+            s = s,
+            e = e,
+            sev = severity_rank(word),
+          }
+        end
+        break -- this pattern's leftmost hit; any later one is further right
+      end
+      init = e + 1 -- captured path did not resolve; keep scanning this pattern
+    end
+  end
+  if best then
+    return best.file, best.lnum, best.col, best.s, best.e, best.sev
+  end
+end
+
+--- First location on the line that points at a real file. The configured
+--- error_patterns are tried first; anything they miss falls through to a scan
+--- that unwraps a path hidden behind a prefix or bracket the patterns did not
+--- isolate (a path with spaces or parens, a java `...(Main.java:12)` frame).
 ---@param line string
 ---@param term_buf integer
 ---@return string|nil file, integer|nil lnum, integer|nil col
 ---@return integer|nil span_s, integer|nil span_e 1-based inclusive byte range of the match in `line`
+---@return integer|nil sev severity rank (see severity_rank)
 local function parse_error_line(line, term_buf)
-  local s, e, file, lnum = line:find('File "([^"]+)", line (%d+)')
+  local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf)
   if file then
-    local path = resolve_file(file, term_buf)
-    if path then
-      return path, tonumber(lnum), nil, s, e
-    end
+    return file, lnum, col, span_s, span_e, sev
   end
+
   local init = 1
   while true do
-    local f, l, c
-    -- keep quotes out (python's `File "..."` is handled above) but allow
+    -- keep quotes out (python's `File "..."` is a pattern above) but allow
     -- parens so paths like `/tmp/foo(audit).c` parse; a path the message
     -- wraps in `(...)` is unwrapped by resolve_file_suffix.
-    s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
+    local s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
     if not s then
-      break
+      return
     end
     local path, offset = resolve_file_suffix(f, term_buf)
     if path then
-      return path, tonumber(l), tonumber(c), s + offset, e
+      return path, tonumber(l), tonumber(c), s + offset, e, 2
     end
     init = e + 1
   end
