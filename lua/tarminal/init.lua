@@ -1023,18 +1023,18 @@ end
 
 function M.run()
   local ctx
-  local current_file = vim.fn.expand("%:p")
-  if vim.bo.buftype == "" and current_file ~= "" then
+  local from_file = vim.bo.buftype == "" and vim.fn.expand("%:p") ~= ""
+  if from_file then
     if not update_buffer(vim.api.nvim_get_current_buf()) then
       return
     end
+    local current_file = vim.fn.expand("%:p")
     ctx = {
       file = current_file,
       stem = vim.fn.expand("%:t:r"),
       dir = vim.fn.fnamemodify(current_file, ":h"),
       ft = vim.bo.filetype,
     }
-    M._last_run = ctx
   else
     ctx = M._last_run
     if not ctx then
@@ -1050,10 +1050,15 @@ function M.run()
 
   local runner_cmd = build_runner_command(ctx)
   if not runner_cmd then
+    -- don't remember an unsupported file: a later re-run from the terminal
+    -- should still repeat the last file that actually ran
     vim.notify("No runner configured for filetype: " .. ctx.ft, vim.log.levels.WARN)
     return
   end
 
+  if from_file then
+    M._last_run = ctx
+  end
   execute_in_shell(runner_cmd, ctx.dir)
 end
 

@@ -1332,6 +1332,29 @@ describe("tarminal", function()
     vim.fn.delete(script)
   end)
 
+  it("keeps the last run when a later run has no configured runner", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    tarminal.run()
+    local remembered = tarminal._last_run
+    assert.equals(file, remembered.file)
+
+    -- a file whose filetype has no runner must not overwrite the last run
+    local other = vim.fn.tempname() .. ".xyz"
+    vim.fn.writefile({ "nothing" }, other)
+    vim.cmd("edit " .. vim.fn.fnameescape(other))
+    vim.bo.filetype = "xyzlang"
+    tarminal.run()
+
+    assert.equals(remembered, tarminal._last_run)
+    vim.fn.delete(file)
+    vim.fn.delete(other)
+  end)
+
   it("refuses error navigation in a terminal it did not create", function()
     vim.fn.setqflist({})
     vim.cmd("terminal")
