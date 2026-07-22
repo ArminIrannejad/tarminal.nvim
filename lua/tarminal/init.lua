@@ -106,8 +106,6 @@ local defaults = {
     ocaml = "ocaml",
     c = "cc",
     rust = "rustc",
-    -- `odin run` compiles and runs in one step (so it is not a `-o`
-    -- compiler); a single source file needs a trailing `-file`
     odin = { cmd = "odin run", args = "-file" },
   },
   -- only compilers invoked as `cmd <source> -o <out>` producing a runnable
@@ -134,25 +132,15 @@ local defaults = {
     ruby = "irb",
     julia = "julia",
     r = "R",
-    -- ghci's line editor (haskeline) does not understand bracketed paste and
-    -- swallows a block wrapped in the paste escapes, so send it raw. Raw lines
-    -- are evaluated the moment their newline arrives, which splits type
-    -- signatures from definitions and collapses do/where blocks, so wrap
-    -- multi-line sends in ghci's own `:{ ... :}` block markers instead.
     haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
   -- tried in order; the first pattern whose captured path resolves wins the
   -- leftmost location on the line. Add your own for tools these miss.
   error_patterns = {
-    -- gcc / clang / rustc / go / lua etc. with a trailing severity word:
-    --   foo.c:12:5: error: ...
     { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
-    -- the same, no severity word:  foo.c:12:5
     { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
-    -- make / grep -n and other line-only locations:  path:12:
     { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
-    -- python / ocaml:  File "foo.py", line 12
     { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
   },
   error_threshold = 0,
@@ -244,8 +232,6 @@ local function open_shell_term(name)
   else
     ok, job = pcall(vim.fn.termopen, cmd)
   end
-  -- a missing or unexecutable shell raises (E475) or returns <= 0; either
-  -- way tear down the window and buffer just created so repeated attempts
   -- don't pile up empty splits, and report it instead of propagating a crash.
   if not ok or type(job) ~= "number" or job <= 0 then
     pcall(vim.api.nvim_win_close, win, true)
@@ -280,12 +266,9 @@ local function term_cd(buf, dir)
   vim.b[buf].term_cwd = dir
 end
 
---- Scroll the terminal to the bottom, then place focus according to `follow`.
 ---@param follow tarminal.Follow
 local function focus_after_send(term_win, code_win, follow)
   M._last_code_win = code_win
-  -- scroll without entering the window; entering and leaving would fire
-  -- WinEnter/BufEnter twice and flicker
   vim.api.nvim_win_call(term_win, function()
     vim.cmd("normal! G")
   end)
@@ -295,7 +278,6 @@ local function focus_after_send(term_win, code_win, follow)
   elseif follow == "focus" then
     vim.api.nvim_set_current_win(term_win)
   elseif vim.api.nvim_get_current_win() ~= code_win and vim.api.nvim_win_is_valid(code_win) then
-    -- opening the split moved focus into the terminal: go back
     vim.api.nvim_set_current_win(code_win)
   end
 end
@@ -380,11 +362,6 @@ local function resolve_file(path, term_buf)
   end
 end
 
---- Resolve a location candidate that may carry a prefix before the path,
---- like sbt's `[error] /path/Main.scala:12:4`: try the whole candidate
---- first so paths with spaces keep working, then drop leading words. Each
---- attempt is retried past a single leading bracket/quote so a path the
---- message wraps — node's `(/app/x.js:1:2)` — still resolves.
 ---@return string|nil path, integer|nil offset byte offset of the path in `candidate`
 local function resolve_file_suffix(candidate, term_buf)
   local trimmed = vim.trim(candidate)
@@ -404,12 +381,6 @@ local function resolve_file_suffix(candidate, term_buf)
       end
     end
 
-    -- advance past the next prefix boundary and retry: a run of whitespace,
-    -- or an opening bracket a path can be glued to without a space, like a
-    -- Java stack frame's `pkg.Main.run(Main.java:12)`. The whole candidate is
-    -- always tried first (longest suffix wins), so a real path that itself
-    -- contains a bracket — `/tmp/report(audit).c` — still resolves before any
-    -- split is taken.
     local _, ws_end = trimmed:find("%s+", start)
     local bracket = trimmed:find("[%(%[<]", start)
     local next_start = ws_end and ws_end + 1
@@ -475,14 +446,10 @@ local function match_patterns(line, term_buf)
   end
 end
 
---- First location on the line that points at a real file. The configured
---- error_patterns are tried first; anything they miss falls through to a scan
---- that unwraps a path hidden behind a prefix or bracket the patterns did not
---- isolate (a path with spaces or parens, a java `...(Main.java:12)` frame).
 ---@param line string
 ---@param term_buf integer
 ---@return string|nil file, integer|nil lnum, integer|nil col
----@return integer|nil span_s, integer|nil span_e 1-based inclusive byte range of the match in `line`
+---@return integer|nil span_s, integer|nil span_e
 ---@return integer|nil sev severity rank (see severity_rank)
 local function parse_error_line(line, term_buf)
   local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf)
@@ -612,14 +579,10 @@ local WATCH_TIMEOUT = 30000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
---- Highlight group for a severity rank (see severity_rank): warnings and
---- notes are visually distinct from errors.
 local function severity_hl(sev)
   return (sev or 2) >= 2 and "TarminalError" or "TarminalWarning"
 end
 
---- Highlight a byte range of a logical line across the physical lines it
---- wraps over.
 local function highlight_span(term_buf, lines, first_row, last_row, span_s, span_e, hl_group)
   local off = 0
   for row = first_row, last_row do
@@ -708,11 +671,6 @@ local function watch_run_errors(term_buf, banner_token, start_row)
       local tick = vim.api.nvim_buf_get_changedtick(term_buf)
       if tick == last_tick then
         elapsed = elapsed + WATCH_INTERVAL
-        -- output settled and the shell took the foreground back: run over.
-        -- The silence timeout only breaks indeterminate job-control states
-        -- (busy nil = no job control) — a command still holding the pty
-        -- foreground (busy true) keeps the watcher alive however long it
-        -- stays quiet, so a slow build that prints errors late is caught.
         local busy = term_busy(term_buf)
         if (seen and busy == false) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
           stop()
@@ -792,12 +750,10 @@ local function goto_error(dir)
   vim.notify("No more error locations", vim.log.levels.WARN)
 end
 
---- Move the cursor to the next error location in the terminal.
 function M.next_error()
   goto_error(1)
 end
 
---- Move the cursor to the previous error location in the terminal.
 function M.prev_error()
   goto_error(-1)
 end
@@ -875,7 +831,6 @@ local function get_or_create_shell_term()
   return buf, win
 end
 
---- Show/hide the shared shell terminal.
 function M.toggle()
   local buf = find_live_terminal("is_shell", true)
   local win = find_win_for_buf(buf)
@@ -987,13 +942,6 @@ local function runner_spec(ft)
   return cmd, run_binary, args
 end
 
---- Shell command that runs a file: `python foo.py`, or for a compiling
---- runner `cc foo.c -o foo && ./foo` (only the binary is timed). `time` is
---- prefixed only when a time binary exists, so the command works in any
---- POSIX shell. An extensionless file compiles to `<name>.out` — its stem
---- is the filename itself, and `-o` would overwrite the source. A runner's
---- `args` are appended right after the source in either form, for tools
---- that demand `<cmd> <file> <flag>` order (`odin run foo.odin -file`).
 ---@param ctx tarminal.RunContext
 ---@return string|nil
 local function build_runner_command(ctx)
@@ -1034,8 +982,6 @@ local function update_buffer(buf)
   return ok
 end
 
---- Save and run the current file in the shared shell terminal. When invoked
---- from the terminal itself (or any non-file buffer), re-run the last run.
 function M.run()
   local ctx
   local current_file = vim.fn.expand("%:p")
@@ -1072,11 +1018,6 @@ function M.run()
   execute_in_shell(runner_cmd, ctx.dir)
 end
 
---- Run an arbitrary command in the shared terminal (emacs M-x compile).
---- Without an argument: always prompt, pre-filled with the previously
---- expanded command (empty on the first run). Cmdline specials
---- (|cmdline-special|: %, %:r, #, <cword>, ...) are expanded first, and
---- the command runs from nvim's cwd so `%`'s relative path resolves.
 ---@param arg string|table|nil command, :Tarminal callback data, or nil
 ---@param verbatim boolean|nil run `arg` as given, skipping cmdline-special expansion
 function M.exec(arg, verbatim)
@@ -1084,19 +1025,10 @@ function M.exec(arg, verbatim)
   if type(arg) == "string" then
     input = arg
   elseif type(arg) == "table" then
-    -- use the raw argument text, not fargs: fargs is pre-tokenized, which
-    -- collapses shell quoting and escaping (`echo 'a  b'` -> `echo a b`,
-    -- an escaped `\|` -> a pipe), materially changing the command. Strip
-    -- the leading `exec` subcommand token the :Tarminal dispatcher leaves.
     input = (arg.args or ""):gsub("^%s*%S+%s*", "")
   end
 
   if not input or input == "" then
-    -- always prompt on a bare exec, pre-filled with the previously expanded
-    -- command. Confirming reruns it verbatim: the prefill is already
-    -- expanded, so re-expanding would double-expand a filename containing
-    -- `%`/`#` and re-resolve `%` against whatever buffer is current now
-    -- (the terminal's own name from a non-file buffer).
     vim.ui.input({ prompt = "exec: ", default = M._last_exec_cmd, completion = "shellcmd" }, function(text)
       if text and text ~= "" then
         M.exec(text, true)
@@ -1129,7 +1061,7 @@ end
 --- getpos() columns point at the first byte of a character; extend `col`
 --- to its last byte (clamped) so a trailing multibyte char isn't cut in
 --- half.
----@param col integer 1-based byte column
+---@param col integer
 ---@return integer
 local function char_end_col(line, col)
   if col > #line then
@@ -1170,12 +1102,11 @@ local function get_visual_selection(visual_mode)
     local vleft, vright = math.min(c1, c2), math.max(c1, c2)
     for i, line in ipairs(lines) do
       local sbyte, ebyte
-      local col = 1 -- screen column of the current character's first cell
+      local col = 1
       local b = 1
       while b <= #line do
         local clen = vim.str_utf_end(line, b) + 1
         local last_cell = vim.fn.strdisplaywidth(line:sub(1, b + clen - 1))
-        -- keep the character when its cells [col, last_cell] overlap the block
         if last_cell >= vleft and col <= vright then
           sbyte = sbyte or b
           ebyte = b + clen - 1
@@ -1201,7 +1132,6 @@ local function get_line_range(line1, line2)
   return table.concat(vim.api.nvim_buf_get_lines(0, line1 - 1, line2, false), "\n")
 end
 
---- Normalize a `repls` entry (see tarminal.Repl).
 ---@return string|nil cmd, boolean bracketed_paste, string|nil block_open, string|nil block_close
 local function repl_spec(ft)
   local spec = M.config.repls[ft]
@@ -1237,10 +1167,6 @@ local function get_or_start_repl(ft)
   return buf, win
 end
 
---- Send text bracketed-paste wrapped so multi-line blocks paste cleanly,
---- unless the REPL's entry disables it (then it goes raw). REPLs that provide
---- block markers (ghci's `:{ ... :}`) instead wrap multi-line sends in those,
---- so the block is read as one unit rather than line by line.
 local function send_to_repl(repl_buf, text)
   if not text:match("\n$") then
     text = text .. "\n"
@@ -1255,8 +1181,6 @@ local function send_to_repl(repl_buf, text)
   term_send(repl_buf, text)
 end
 
---- Send the visual selection, or an explicit command range, to the
---- filetype's REPL.
 ---@param command_opts table|nil :Tarminal command callback data
 function M.send_selection(command_opts)
   local code_win = vim.api.nvim_get_current_win()
