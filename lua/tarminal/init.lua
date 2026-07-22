@@ -1337,7 +1337,19 @@ end
 --- the :Tarminal subcommands or the functions in this module.
 ---@param opts tarminal.Config|nil merged over the defaults in M.config
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
+  opts = opts or {}
+  -- error_patterns is a list: tbl_deep_extend would merge it by index and
+  -- leave stray built-ins behind, so pull it out and prepend the user's
+  -- patterns to the built-ins instead (theirs are tried first).
+  local extra = opts.error_patterns
+  if extra then
+    opts = vim.tbl_extend("force", {}, opts) -- shallow copy; don't mutate caller
+    opts.error_patterns = nil
+  end
+  M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
+  if extra then
+    M.config.error_patterns = vim.list_extend(vim.deepcopy(extra), M.config.error_patterns)
+  end
   local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
   define_error_highlight()
