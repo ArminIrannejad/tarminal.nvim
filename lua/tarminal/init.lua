@@ -354,13 +354,13 @@ local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBS
 local SHELL_TTL = 1000
 local shell_cache = {} -- buf -> { cwd|busy = {t, v} }; cleared on BufWipeout
 
--- macos/bsd only; linux stays live (procfs is cheap). force skips the ttl
-local function memo(buf, kind, provider, pid, force)
+-- macos/bsd only; linux stays live (procfs is cheap)
+local function memo(buf, kind, provider, pid)
   local slot = shell_cache[buf] or {}
   shell_cache[buf] = slot
   local c = slot[kind]
   local now = uv.now()
-  if not force and c and now - c.t < SHELL_TTL then
+  if c and now - c.t < SHELL_TTL then
     return c.v
   end
   local v = provider(pid)
@@ -368,12 +368,13 @@ local function memo(buf, kind, provider, pid, force)
   return v
 end
 
--- a run's `cd <dir>` is known; seed it so this run's paths don't resolve against
--- a stale entry (and no lsof races the not-yet-run cd)
-local function prime_cwd(buf, cwd)
+-- a new run: seed the known `cd <dir>` (no stale cwd, no lsof racing the cd) and
+-- drop any pre-run busy sample so the watcher re-checks instead of stopping on it
+local function prep_run_cache(buf, dir)
   local slot = shell_cache[buf] or {}
   shell_cache[buf] = slot
-  slot.cwd = { t = uv.now(), v = cwd }
+  slot.cwd = { t = uv.now(), v = dir }
+  slot.busy = nil
 end
 
 ---@return string|nil
@@ -395,8 +396,8 @@ local function term_cwd(buf)
   return vim.b[buf].term_cwd
 end
 
--- fresh bypasses the ttl memo; the run guard needs the current state, not a
--- value the watcher cached up to a second ago
+-- fresh: a one-off read (the run guard) that must not seed the watcher cache,
+-- else the watcher could reuse this pre-run idle value and stop mid-command
 ---@return boolean|nil busy nil when undeterminable
 local function term_busy(buf, fresh)
   local pid = term_pid(buf)
@@ -406,7 +407,10 @@ local function term_busy(buf, fresh)
   if SYSNAME == "Linux" then
     return linux_busy(pid)
   elseif SYSNAME == "Darwin" or IS_BSD then
-    return memo(buf, "busy", ps_busy, pid, fresh)
+    if fresh then
+      return ps_busy(pid)
+    end
+    return memo(buf, "busy", ps_busy, pid)
   end
   return nil
 end
@@ -950,7 +954,7 @@ local function execute_in_shell(cmd, dir)
   end
   term_send_command(term_buf, full)
   vim.b[term_buf].term_cwd = dir
-  prime_cwd(term_buf, dir)
+  prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
