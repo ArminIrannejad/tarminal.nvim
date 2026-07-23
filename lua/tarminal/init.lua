@@ -4,7 +4,6 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
--- "Linux" | "Darwin" | "FreeBSD" | "OpenBSD" | "NetBSD" | "Windows" | ...
 local SYSNAME = (uv.os_uname() or {}).sysname or ""
 
 ---@alias tarminal.Follow
