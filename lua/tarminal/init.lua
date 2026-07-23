@@ -259,12 +259,7 @@ local function term_pid(buf)
   return nil
 end
 
--- Platform-specific process introspection. All providers are defined on every
--- OS (only the dispatch below is conditional) and return nil when
--- undeterminable, so callers degrade gracefully. Linux reads procfs (fast, no
--- subprocess); macOS/BSD shell out.
-
--- Linux: cwd symlink, foreground pgrp/tpgid, and children file.
+-- process introspection: linux reads procfs; macos/bsd shell out. nil = unknown
 local function linux_cwd(pid)
   return uv.fs_readlink("/proc/" .. pid .. "/cwd")
 end
@@ -304,21 +299,19 @@ local function linux_has_child(pid)
   return vim.trim(kids) ~= ""
 end
 
--- macOS/BSD: pgrep lists child pids (one per line), exit 0 iff any exist. Ships
--- on macOS and every BSD, so child (and the busy heuristic) get parity for free.
+-- macos/bsd: pgrep lists child pids; exit 0 iff any exist
 local function pgrep_has_child(pid)
   local out = vim.fn.system({ "pgrep", "-P", tostring(pid) })
   return vim.v.shell_error == 0 and vim.trim(out) ~= ""
 end
 
--- lsof binary, resolved once ("" from exepath -> the stock macOS location).
+-- lsof path, resolved once ("" from exepath -> stock location)
 local LSOF = vim.fn.exepath("lsof")
 if LSOF == "" then
   LSOF = "/usr/sbin/lsof"
 end
 
--- extract the cwd path from `lsof -Fn` output: lines are `p<pid>`, `fcwd`,
--- `n<path>`. Pure string work, split out so it is unit-testable off macOS.
+-- cwd from `lsof -Fn`: lines are p<pid>, fcwd, n<path>; split out to unit-test
 local function parse_lsof_cwd(out)
   return out:match("\nn([^\n]+)") or out:match("^n([^\n]+)")
 end
@@ -332,19 +325,14 @@ local function darwin_cwd(pid)
   return parse_lsof_cwd(out)
 end
 
--- TODO(bsd): resolve cwd via `procstat -f <pid>` (parse the `cwd` row's NAME
--- column) or OpenBSD `fstat`. Note the non-root requirement
--- `security.bsd.unprivileged_proc_debug=1`, and that a mounted linprocfs exposes
--- `/compat/linux/proc/<pid>/cwd`. Until then, nil -> term_cwd's cached fallback.
+-- TODO(bsd): procstat -f <pid> (or fstat) for cwd; nil -> term_cwd's cached fallback
 local function bsd_cwd(_)
   return nil
 end
 
 local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBSD"
 
--- buf -> { tick, cwd }: memoize the shell-out cwd so a quickfix scan doesn't
--- spawn lsof per line. A `cd` echoes a new prompt -> changedtick bumps -> the
--- entry expires. Cleared on BufWipeout (see M.setup).
+-- buf -> {tick, cwd}: memoize the shell-out cwd; a `cd` bumps changedtick, expiring it
 local cwd_cache = {}
 
 local function cached_cwd(buf, pid, provider)
