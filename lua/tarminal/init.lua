@@ -349,18 +349,23 @@ end
 
 local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBSD"
 
--- buf -> {tick, cwd}: memoize the shell-out cwd; a `cd` bumps changedtick, expiring it
-local cwd_cache = {}
+-- ms; memoize shell-outs this long so heavy output can't spawn lsof/ps per
+-- watcher scan (time-based, not changedtick: output must not count as a cd)
+local SHELL_TTL = 1000
+local shell_cache = {} -- buf -> { cwd|busy = {t, v} }; cleared on BufWipeout
 
-local function cached_cwd(buf, pid, provider)
-  local tick = vim.api.nvim_buf_get_changedtick(buf)
-  local c = cwd_cache[buf]
-  if c and c.tick == tick then
-    return c.cwd
+-- macos/bsd only; linux stays live (procfs is cheap)
+local function memo(buf, kind, provider, pid)
+  local slot = shell_cache[buf] or {}
+  shell_cache[buf] = slot
+  local c = slot[kind]
+  local now = uv.now()
+  if c and now - c.t < SHELL_TTL then
+    return c.v
   end
-  local cwd = provider(pid)
-  cwd_cache[buf] = { tick = tick, cwd = cwd }
-  return cwd
+  local v = provider(pid)
+  slot[kind] = { t = now, v = v }
+  return v
 end
 
 ---@return string|nil
@@ -371,9 +376,9 @@ local function term_cwd(buf)
     if SYSNAME == "Linux" then
       cwd = linux_cwd(pid) -- procfs readlink is free; no cache needed
     elseif SYSNAME == "Darwin" then
-      cwd = cached_cwd(buf, pid, darwin_cwd)
+      cwd = memo(buf, "cwd", darwin_cwd, pid)
     elseif IS_BSD then
-      cwd = cached_cwd(buf, pid, bsd_cwd)
+      cwd = memo(buf, "cwd", bsd_cwd, pid)
     end
     if cwd then
       return cwd
@@ -391,7 +396,7 @@ local function term_busy(buf)
   if SYSNAME == "Linux" then
     return linux_busy(pid)
   elseif SYSNAME == "Darwin" or IS_BSD then
-    return ps_busy(pid)
+    return memo(buf, "busy", ps_busy, pid)
   end
   return nil
 end
@@ -1316,7 +1321,7 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("BufWipeout", {
     group = group,
     callback = function(ev)
-      cwd_cache[ev.buf] = nil
+      shell_cache[ev.buf] = nil
     end,
   })
 end
