@@ -1000,6 +1000,25 @@ describe("tarminal", function()
     end, 50)
   end
 
+  it("does not pad bannered runs with blank terminal lines", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", shell = "sh " .. script, runners = { lua = "true" } })
+
+    tarminal.run()
+
+    assert.is_true(wait_capture(out, "RUN["))
+    local command = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    assert.is_nil(command:find("\\n\\n", 1, true))
+    assert.is_nil(command:find("\\033[H", 1, true))
+  end)
+
   it("exec expands % against the current file", function()
     local out, script = stdin_capture_shell()
     local file = vim.fn.tempname() .. ".lua"
@@ -1178,13 +1197,12 @@ describe("tarminal", function()
     tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
     local term_buf
-    local function has_banner(token)
-      for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+    local function banner_row(token)
+      for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
         if l:match("^=====") and l:find(token, 1, true) then
-          return true
+          return row
         end
       end
-      return false
     end
 
     tarminal.run()
@@ -1196,15 +1214,64 @@ describe("tarminal", function()
     end
     assert.is_not_nil(term_buf)
     assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
-    assert.is_true(has_banner(first))
+    assert.is_not_nil(banner_row(first))
 
     tarminal.run()
     local second = ("RUN[%d]"):format(tarminal._run_id)
     assert.is_true(vim.wait(4000, function()
-      return has_banner(second)
+      return banner_row(second) ~= nil
     end, 50))
-    -- the first run's banner must survive the second run's screen push
-    assert.is_true(has_banner(first))
+    -- The first run remains in the buffer while the window is scrolled to
+    -- the second banner; no terminal output is needed to pad the viewport.
+    assert.is_not_nil(banner_row(first))
+    local find_win_for_buf = get_upvalue(tarminal.run, "find_win_for_buf")
+    local term_win = find_win_for_buf(term_buf)
+    assert.is_true(vim.wait(4000, function()
+      return vim.api.nvim_win_call(term_win, function()
+        return vim.fn.winsaveview().topline == banner_row(second)
+      end)
+    end, 50))
+    vim.fn.delete(file)
+  end)
+
+  -- Headless nvim never reaches terminal-insert ("t") mode, so this exercises
+  -- the immediate-pin path rather than the deferred flush; it guards that
+  -- insert-follow still lands the banner at the top of the window.
+  it("aligns the banner to the window top in insert-follow", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "insert", runners = { lua = "true" } })
+
+    tarminal.run()
+    local token = ("RUN[%d]"):format(tarminal._run_id)
+
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
+
+    local function banner_row()
+      for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:match("^=====") and l:find(token, 1, true) then
+          return row
+        end
+      end
+    end
+
+    local find_win_for_buf = get_upvalue(tarminal.run, "find_win_for_buf")
+    local term_win = find_win_for_buf(term_buf)
+    assert.is_true(vim.wait(4000, function()
+      return vim.api.nvim_win_call(term_win, function()
+        return vim.fn.winsaveview().topline == banner_row()
+      end)
+    end, 50))
+    vim.cmd("stopinsert")
     vim.fn.delete(file)
   end)
 
