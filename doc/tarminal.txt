@@ -26,6 +26,12 @@ tarminal.nvim is a terminal runner / REPL integration:
 - Send a visual selection or the cell around the cursor (delimited by
   `cell_marker` lines) to a per-filetype REPL, using bracketed paste.
 
+Platform support: relative paths in error output are resolved against the
+terminal shell's live working directory. On Linux/WSL this reads
+`/proc/<pid>/cwd`; on macOS it shells out to `lsof` (and `pgrep` for run/REPL
+state) — both stock. On BSD this resolution is not implemented yet, so relative
+paths fall back to Neovim's own working directory.
+
 ==============================================================================
 2. Setup                                                      *tarminal-setup*
 

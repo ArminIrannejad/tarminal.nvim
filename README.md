@@ -18,7 +18,14 @@ the current file, and sends selections or cells to a REPL.
 ## Requirements
 
 - Neovim 0.9 or newer
-- Linux
+- Linux or WSL — full support
+- macOS — full support (uses the stock `lsof` and `pgrep`)
+- BSD — mostly works; resolving a relative error path against the shell's
+  current directory is not implemented yet, so those paths fall back to
+  Neovim's own working directory
+
+Resolving relative paths in error output relies on reading the terminal shell's
+live working directory: `/proc/<pid>/cwd` on Linux, `lsof` on macOS.
 
 ## Install
 

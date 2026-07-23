@@ -4,6 +4,9 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
+-- "Linux" | "Darwin" | "FreeBSD" | "OpenBSD" | "NetBSD" | "Windows" | ...
+local SYSNAME = (uv.os_uname() or {}).sysname or ""
+
 ---@alias tarminal.Follow
 ---| '"none"'   # stay in the code window
 ---| '"focus"'  # terminal window, normal mode
@@ -242,32 +245,27 @@ local function focus_after_send(term_win, code_win, follow)
   end
 end
 
----@return string|nil
-local function term_cwd(buf)
-  local job = get_job_id(buf)
-  if job then
-    local ok, pid = pcall(vim.fn.jobpid, job)
-    if ok and pid and pid > 0 then
-      local cwd = uv.fs_readlink("/proc/" .. pid .. "/cwd")
-      if cwd then
-        return cwd
-      end
-    end
-  end
-  return vim.b[buf].term_cwd
-end
-
--- foreground job? pgrp vs tpgid from /proc/stat; dead group with no procs = idle
----@return boolean|nil busy nil when undeterminable
-local function term_busy(buf)
+-- job -> shell pid, or nil (dedupes the boilerplate the term_* wrappers share)
+---@return integer|nil
+local function term_pid(buf)
   local job = get_job_id(buf)
   if not job then
     return nil
   end
   local ok, pid = pcall(vim.fn.jobpid, job)
-  if not ok or not pid or pid <= 0 then
-    return nil
+  if ok and pid and pid > 0 then
+    return pid
   end
+  return nil
+end
+
+-- process introspection: linux reads procfs; macos/bsd shell out. nil = unknown
+local function linux_cwd(pid)
+  return uv.fs_readlink("/proc/" .. pid .. "/cwd")
+end
+
+-- foreground job? pgrp vs tpgid from /proc/stat; dead group with no procs = idle
+local function linux_busy(pid)
   local f = io.open("/proc/" .. pid .. "/stat", "r")
   if not f then
     return nil
@@ -290,17 +288,8 @@ local function term_busy(buf)
   return uv.kill(-tpgid, 0) == 0
 end
 
--- shell has a live child (the REPL)? via /proc children; works without job control
----@return boolean|nil
-local function shell_has_child(buf)
-  local job = get_job_id(buf)
-  if not job then
-    return nil
-  end
-  local ok, pid = pcall(vim.fn.jobpid, job)
-  if not ok or not pid or pid <= 0 then
-    return nil
-  end
+-- via /proc children; works without job control
+local function linux_has_child(pid)
   local f = io.open("/proc/" .. pid .. "/task/" .. pid .. "/children", "r")
   if not f then
     return nil
@@ -308,6 +297,137 @@ local function shell_has_child(buf)
   local kids = f:read("*a") or ""
   f:close()
   return vim.trim(kids) ~= ""
+end
+
+-- macos/bsd: pgrep lists child pids; exit 0 iff any exist
+local function pgrep_has_child(pid)
+  local out = vim.fn.system({ "pgrep", "-P", tostring(pid) })
+  return vim.v.shell_error == 0 and vim.trim(out) ~= ""
+end
+
+-- macos/bsd: foreground job? shell pgid vs terminal tpgid via ps, like linux_busy
+local function ps_busy(pid)
+  local out = vim.fn.system({ "ps", "-o", "pgid=", "-o", "tpgid=", "-p", tostring(pid) })
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  local pgid, tpgid = out:match("(%d+)%s+(%-?%d+)")
+  pgid, tpgid = tonumber(pgid), tonumber(tpgid)
+  if not pgid or not tpgid or tpgid <= 0 then
+    return nil
+  end
+  if tpgid == pgid then
+    return false
+  end
+  return uv.kill(-tpgid, 0) == 0
+end
+
+-- lsof path, resolved once ("" from exepath -> stock location)
+local LSOF = vim.fn.exepath("lsof")
+if LSOF == "" then
+  LSOF = "/usr/sbin/lsof"
+end
+
+-- cwd from `lsof -Fn`: lines are p<pid>, fcwd, n<path>; split out to unit-test
+local function parse_lsof_cwd(out)
+  return out:match("\nn([^\n]+)") or out:match("^n([^\n]+)")
+end
+
+-- macOS has no procfs; ask lsof for just the cwd descriptor (-d cwd).
+local function darwin_cwd(pid)
+  local out = vim.fn.system({ LSOF, "-a", "-p", tostring(pid), "-d", "cwd", "-Fn" })
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  return parse_lsof_cwd(out)
+end
+
+-- TODO(bsd): procstat -f <pid> (or fstat) for cwd; nil -> term_cwd's cached fallback
+local function bsd_cwd(_)
+  return nil
+end
+
+local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBSD"
+
+-- ms; memoize shell-outs this long so heavy output can't spawn lsof/ps per
+-- watcher scan (time-based, not changedtick: output must not count as a cd)
+local SHELL_TTL = 1000
+local shell_cache = {} -- buf -> { cwd|busy = {t, v} }; cleared on BufWipeout
+
+-- macos/bsd only; linux stays live (procfs is cheap)
+local function memo(buf, kind, provider, pid)
+  local slot = shell_cache[buf] or {}
+  shell_cache[buf] = slot
+  local c = slot[kind]
+  local now = uv.now()
+  if c and now - c.t < SHELL_TTL then
+    return c.v
+  end
+  local v = provider(pid)
+  slot[kind] = { t = now, v = v }
+  return v
+end
+
+-- a new run: seed the known `cd <dir>` (no stale cwd, no lsof racing the cd) and
+-- drop any pre-run busy sample so the watcher re-checks instead of stopping on it
+local function prep_run_cache(buf, dir)
+  local slot = shell_cache[buf] or {}
+  shell_cache[buf] = slot
+  slot.cwd = { t = uv.now(), v = dir }
+  slot.busy = nil
+end
+
+---@return string|nil
+local function term_cwd(buf)
+  local pid = term_pid(buf)
+  if pid then
+    local cwd
+    if SYSNAME == "Linux" then
+      cwd = linux_cwd(pid) -- procfs readlink is free; no cache needed
+    elseif SYSNAME == "Darwin" then
+      cwd = memo(buf, "cwd", darwin_cwd, pid)
+    elseif IS_BSD then
+      cwd = memo(buf, "cwd", bsd_cwd, pid)
+    end
+    if cwd then
+      return cwd
+    end
+  end
+  return vim.b[buf].term_cwd
+end
+
+-- fresh: a one-off read (the run guard) that must not seed the watcher cache,
+-- else the watcher could reuse this pre-run idle value and stop mid-command
+---@return boolean|nil busy nil when undeterminable
+local function term_busy(buf, fresh)
+  local pid = term_pid(buf)
+  if not pid then
+    return nil
+  end
+  if SYSNAME == "Linux" then
+    return linux_busy(pid)
+  elseif SYSNAME == "Darwin" or IS_BSD then
+    if fresh then
+      return ps_busy(pid)
+    end
+    return memo(buf, "busy", ps_busy, pid)
+  end
+  return nil
+end
+
+-- shell has a live child (the REPL)?
+---@return boolean|nil
+local function shell_has_child(buf)
+  local pid = term_pid(buf)
+  if not pid then
+    return nil
+  end
+  if SYSNAME == "Linux" then
+    return linux_has_child(pid)
+  elseif SYSNAME == "Darwin" or IS_BSD then
+    return pgrep_has_child(pid)
+  end
+  return nil
 end
 
 -- wait for the REPL to become the shell's child; re-check to reject a flicker
@@ -794,7 +914,7 @@ local function execute_in_shell(cmd, dir)
 
   -- a busy shell would eat the send as stdin; show it so it can be interrupted
   local existing = find_live_terminal("is_shell", true)
-  if existing and term_busy(existing) then
+  if existing and term_busy(existing, true) then
     ensure_window_for_buf(existing)
     vim.api.nvim_set_current_win(code_win)
     vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
@@ -834,6 +954,7 @@ local function execute_in_shell(cmd, dir)
   end
   term_send_command(term_buf, full)
   vim.b[term_buf].term_cwd = dir
+  prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
@@ -1211,6 +1332,12 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = group,
     callback = define_error_highlight,
+  })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = group,
+    callback = function(ev)
+      shell_cache[ev.buf] = nil
+    end,
   })
 end
 
