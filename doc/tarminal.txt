@@ -97,10 +97,12 @@ foo.zig`), it just does not produce and run a separate binary. With
 shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
 
-With `banner = false` a run prints nothing extra — no banner line, and the
-previous screen is not pushed into scrollback; output simply appends at the
-prompt. Error highlighting and quickfix collection still track the new
-run's output; only the view pinning to the banner is skipped.
+With `banner = false` a run prints nothing extra and output simply appends at
+the prompt. With a banner, tarminal scrolls the Neovim window to the new run
+without clearing or padding the terminal, so previous runs remain in the
+scrollable terminal buffer. Error highlighting and quickfix collection still
+track a bannerless run's output; only the view pinning to the banner is
+skipped.
 
 Everything tarminal types at the shell prompt (run commands, `cd`s, REPL
 launches) is prefixed with a space, so it stays out of the shell history

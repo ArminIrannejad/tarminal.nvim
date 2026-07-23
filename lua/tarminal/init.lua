@@ -229,10 +229,11 @@ local function term_cd(buf, dir)
 end
 
 ---@param follow tarminal.Follow
-local function focus_after_send(term_win, code_win, follow)
+---@param start_at_top boolean|nil
+local function focus_after_send(term_win, code_win, follow, start_at_top)
   M._last_code_win = code_win
   vim.api.nvim_win_call(term_win, function()
-    vim.cmd("normal! G")
+    vim.cmd(start_at_top and "normal! Gzt" or "normal! G")
   end)
   if follow == "insert" then
     vim.api.nvim_set_current_win(term_win)
@@ -696,7 +697,8 @@ end
 
 ---@param banner_token string|nil marker printed before the output
 ---@param start_row integer|nil row output starts after, when bannerless
-local function watch_run_errors(term_buf, banner_token, start_row)
+---@param scan_errors boolean
+local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
   if M._watch_timer then
     M._watch_timer:stop()
     M._watch_timer:close()
@@ -705,6 +707,7 @@ local function watch_run_errors(term_buf, banner_token, start_row)
 
   local elapsed = 0
   local pinned = banner_token == nil -- no banner, nothing to pin to
+  local pin_row = nil -- deferred align target while in terminal mode
   local parked = false
   local seen = false -- run output scanned at least once
   local last_tick = vim.api.nvim_buf_get_changedtick(term_buf)
@@ -717,6 +720,22 @@ local function watch_run_errors(term_buf, banner_token, start_row)
     if M._watch_timer == timer then
       M._watch_timer = nil
     end
+  end
+
+  -- align the deferred pin once the run settles just scroll so the cursor stays put
+  local function flush_pin()
+    if not pin_row then
+      return
+    end
+    local w = find_win_for_buf(term_buf)
+    if w then
+      vim.api.nvim_win_call(w, function()
+        local view = vim.fn.winsaveview()
+        view.topline = pin_row
+        vim.fn.winrestview(view)
+      end)
+    end
+    pin_row = nil
   end
 
   timer:start(
@@ -736,6 +755,7 @@ local function watch_run_errors(term_buf, banner_token, start_row)
         elapsed = elapsed + WATCH_INTERVAL
         local busy = term_busy(term_buf)
         if (seen and busy == false) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
+          flush_pin()
           stop()
         end
         return
@@ -759,11 +779,22 @@ local function watch_run_errors(term_buf, banner_token, start_row)
 
       if not pinned then
         pinned = true
-        if win and not typing then
+        if win and typing then
+          -- terminal mode follows the bottom so defer the align to flush_pin
+          pin_row = banner_row
+        elseif win then
           vim.api.nvim_win_call(win, function()
             vim.fn.winrestview({ topline = banner_row, lnum = banner_row, col = 0 })
           end)
         end
+      end
+
+      if not scan_errors then
+        -- keep watching so the deferred pin can flush otherwise done
+        if not pin_row then
+          stop()
+        end
+        return
       end
 
       vim.api.nvim_buf_clear_namespace(term_buf, ns, banner_row, -1)
@@ -935,21 +966,18 @@ local function execute_in_shell(cmd, dir)
   if M.config.banner then
     banner = ("RUN[%d]"):format(M._run_id)
 
-    -- feed newlines then home cursor: keeps prior runs scrollable (unlike clear)
-    local scroll = vim.api.nvim_win_get_height(term_win)
     full = table.concat({
       "cd " .. vim.fn.shellescape(dir),
-      "printf '" .. ("\\n"):rep(scroll) .. "\\033[H'",
       "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
-      "\n" .. cmd,
+      cmd,
     }, " && ")
   else
     start_row = last_content_row(term_buf)
     full = "cd " .. vim.fn.shellescape(dir) .. " && " .. cmd
   end
 
-  if M.config.park_on_error then
-    watch_run_errors(term_buf, banner, start_row)
+  if banner or M.config.park_on_error then
+    watch_run_output(term_buf, banner, start_row, M.config.park_on_error)
   end
   term_send_command(term_buf, full)
   vim.b[term_buf].term_cwd = dir
@@ -957,7 +985,8 @@ local function execute_in_shell(cmd, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
-  focus_after_send(term_win, code_win, M.config.follow_run)
+  -- best effort scroll the watcher will refine to the banner
+  focus_after_send(term_win, code_win, M.config.follow_run, banner ~= nil)
 end
 
 ---@class tarminal.RunContext
