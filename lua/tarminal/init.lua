@@ -354,18 +354,26 @@ local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBS
 local SHELL_TTL = 1000
 local shell_cache = {} -- buf -> { cwd|busy = {t, v} }; cleared on BufWipeout
 
--- macos/bsd only; linux stays live (procfs is cheap)
-local function memo(buf, kind, provider, pid)
+-- macos/bsd only; linux stays live (procfs is cheap). force skips the ttl
+local function memo(buf, kind, provider, pid, force)
   local slot = shell_cache[buf] or {}
   shell_cache[buf] = slot
   local c = slot[kind]
   local now = uv.now()
-  if c and now - c.t < SHELL_TTL then
+  if not force and c and now - c.t < SHELL_TTL then
     return c.v
   end
   local v = provider(pid)
   slot[kind] = { t = now, v = v }
   return v
+end
+
+-- a run's `cd <dir>` is known; seed it so this run's paths don't resolve against
+-- a stale entry (and no lsof races the not-yet-run cd)
+local function prime_cwd(buf, cwd)
+  local slot = shell_cache[buf] or {}
+  shell_cache[buf] = slot
+  slot.cwd = { t = uv.now(), v = cwd }
 end
 
 ---@return string|nil
@@ -387,8 +395,10 @@ local function term_cwd(buf)
   return vim.b[buf].term_cwd
 end
 
+-- fresh bypasses the ttl memo; the run guard needs the current state, not a
+-- value the watcher cached up to a second ago
 ---@return boolean|nil busy nil when undeterminable
-local function term_busy(buf)
+local function term_busy(buf, fresh)
   local pid = term_pid(buf)
   if not pid then
     return nil
@@ -396,7 +406,7 @@ local function term_busy(buf)
   if SYSNAME == "Linux" then
     return linux_busy(pid)
   elseif SYSNAME == "Darwin" or IS_BSD then
-    return memo(buf, "busy", ps_busy, pid)
+    return memo(buf, "busy", ps_busy, pid, fresh)
   end
   return nil
 end
@@ -900,7 +910,7 @@ local function execute_in_shell(cmd, dir)
 
   -- a busy shell would eat the send as stdin; show it so it can be interrupted
   local existing = find_live_terminal("is_shell", true)
-  if existing and term_busy(existing) then
+  if existing and term_busy(existing, true) then
     ensure_window_for_buf(existing)
     vim.api.nvim_set_current_win(code_win)
     vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
@@ -940,6 +950,7 @@ local function execute_in_shell(cmd, dir)
   end
   term_send_command(term_buf, full)
   vim.b[term_buf].term_cwd = dir
+  prime_cwd(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
