@@ -305,6 +305,23 @@ local function pgrep_has_child(pid)
   return vim.v.shell_error == 0 and vim.trim(out) ~= ""
 end
 
+-- macos/bsd: foreground job? shell pgid vs terminal tpgid via ps, like linux_busy
+local function ps_busy(pid)
+  local out = vim.fn.system({ "ps", "-o", "pgid=", "-o", "tpgid=", "-p", tostring(pid) })
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  local pgid, tpgid = out:match("(%d+)%s+(%-?%d+)")
+  pgid, tpgid = tonumber(pgid), tonumber(tpgid)
+  if not pgid or not tpgid or tpgid <= 0 then
+    return nil
+  end
+  if tpgid == pgid then
+    return false
+  end
+  return uv.kill(-tpgid, 0) == 0
+end
+
 -- lsof path, resolved once ("" from exepath -> stock location)
 local LSOF = vim.fn.exepath("lsof")
 if LSOF == "" then
@@ -374,11 +391,7 @@ local function term_busy(buf)
   if SYSNAME == "Linux" then
     return linux_busy(pid)
   elseif SYSNAME == "Darwin" or IS_BSD then
-    -- Heuristic: an interactive shell has a child while a foreground command
-    -- runs and none when idle. Coarser than Linux's tpgid check (a `&`-
-    -- backgrounded job reads as busy), but enough for the run-watch stop
-    -- condition and the busy guard.
-    return pgrep_has_child(pid)
+    return ps_busy(pid)
   end
   return nil
 end
