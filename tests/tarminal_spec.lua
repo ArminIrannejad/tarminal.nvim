@@ -308,6 +308,16 @@ describe("tarminal", function()
     assert.equals(4, col)
   end)
 
+  it("extracts the cwd path from macOS lsof -Fn output", function()
+    local parse_lsof_cwd = get_upvalue(tarminal.jump_to_error, "parse_lsof_cwd")
+    -- lsof -a -p <pid> -d cwd -Fn emits the pid, the fd, then the n<path> line
+    assert.equals("/Users/armin/project", parse_lsof_cwd("p12345\nfcwd\nn/Users/armin/project\n"))
+    -- a path containing spaces must survive intact
+    assert.equals("/Users/a b/proj", parse_lsof_cwd("p1\nfcwd\nn/Users/a b/proj\n"))
+    -- no n-line (e.g. permission denied) -> nil, so term_cwd falls back
+    assert.is_nil(parse_lsof_cwd("p12345\n"))
+  end)
+
   it("parses sbt-prefixed Scala error locations", function()
     local file = vim.fn.tempname() .. ".scala"
     vim.fn.writefile({ "object Main" }, file)
