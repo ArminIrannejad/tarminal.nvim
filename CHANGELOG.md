@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.1.0...v0.1.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* keep run banner pinned to window top ([e2b456b](https://github.com/ArminIrannejad/tarminal.nvim/commit/e2b456b667dd8b815ba18a6466aaac1551e170ba))
+* keep run banner pinned to window top ([61f6a24](https://github.com/ArminIrannejad/tarminal.nvim/commit/61f6a24c7527f505d414ddc6e7d6bb6210292bec))
+
 ## 0.1.0 (2026-07-23)
 
 
