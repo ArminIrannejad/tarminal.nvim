@@ -19,13 +19,7 @@ the current file, and sends selections or cells to a REPL.
 
 ## Requirements
 
-- Neovim 0.9 or newer
-- Linux, macOS, or BSD; Windows with a POSIX-compatible shell (Git Bash, MSYS2,
-  or WSL) set via `shell` — run commands are POSIX-shell shaped
-
-Working directory tracking (used to resolve relative paths in errors) stays live
-via OSC 7: tarminal enables it automatically for the shell it spawns (bash, zsh;
-fish emits it already). Disable with `shell_integration = false`.
+- Neovim 0.10 or newer
 
 ## Install
 
