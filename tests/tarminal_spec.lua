@@ -1357,7 +1357,7 @@ describe("tarminal", function()
   end)
 
   it("clamps a line 0 location to the first line when jumping", function()
-    local file = vim.fn.tempname() .. ".c"
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
     vim.fn.writefile({ "int a;", "int b;" }, file)
     -- linkers emit locations with line 0
     local script = vim.fn.tempname() .. ".sh"
@@ -1385,7 +1385,7 @@ describe("tarminal", function()
   end)
 
   it("navigates and jumps between error locations, repeatedly", function()
-    local file = vim.fn.tempname() .. ".c"
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
     vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
 
     -- Run a script that prints two error locations instead of an
@@ -1501,7 +1501,7 @@ describe("tarminal", function()
   end)
 
   it("jumps to a file-only location without a line number", function()
-    local file = vim.fn.tempname() .. ".txt"
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".txt"
     vim.fn.writefile({ "hello", "world" }, file)
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({ ("printf 'see %%s\\n' %s"):format(file), "sleep 10" }, script)
