@@ -482,6 +482,9 @@ local function term_busy(buf, fresh)
     end
     return memo(buf, "busy", ps_busy, pid)
   elseif IS_WINDOWS then
+    if fresh then
+      return windows_has_child(pid)
+    end
     return memo(buf, "busy", windows_has_child, pid)
   end
   return nil
