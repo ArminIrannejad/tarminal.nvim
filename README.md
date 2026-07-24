@@ -20,7 +20,11 @@ the current file, and sends selections or cells to a REPL.
 ## Requirements
 
 - Neovim 0.9 or newer
-- !Windows (WSL works)
+- Linux, macOS, BSD, or Windows
+
+Working directory tracking (used to resolve relative paths in errors) stays live
+via OSC 7: tarminal enables it automatically for the shell it spawns (bash, zsh,
+pwsh; fish emits it already). Disable with `shell_integration = false`.
 
 ## Install
 
