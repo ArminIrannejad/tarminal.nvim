@@ -229,9 +229,6 @@ local function term_cd(buf, dir)
   vim.b[buf].term_cwd = dir
 end
 
--- Per-shell snippets that make the shell emit OSC 7 on each prompt (printf sees
--- the literal backslash escapes below and expands them). Appended after the
--- user's rc, so they win over it. Unknown shells are left to their own config.
 local OSC7_SETUP = {
   bash = [[__tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD"; }; case ";${PROMPT_COMMAND};" in *__tarminal_osc7*) ;; *) PROMPT_COMMAND="__tarminal_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac]],
   zsh = [[autoload -Uz add-zsh-hook 2>/dev/null; __tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOST:-}" "$PWD"; }; add-zsh-hook precmd __tarminal_osc7 2>/dev/null || precmd_functions+=(__tarminal_osc7)]],
@@ -239,7 +236,6 @@ local OSC7_SETUP = {
 }
 OSC7_SETUP.powershell = OSC7_SETUP.pwsh
 
--- OSC 7 snippet for the shell in `cmd`, or nil for shells we don't wire up.
 local function osc7_snippet(cmd)
   local exe = vim.split(cmd, "%s+", { trimempty = true })[1] or ""
   local name = vim.fn.fnamemodify(exe:gsub("\\", "/"), ":t:r"):lower()
@@ -360,7 +356,6 @@ local function darwin_cwd(pid)
   return parse_lsof_cwd(out)
 end
 
--- procstat -f <pid> lists fds; the cwd row is `<pid> <comm> cwd ... <path>`.
 local function parse_procstat_cwd(out)
   for line in out:gmatch("[^\n]+") do
     if line:match("^%s*%d+%s+%S+%s+cwd%s") then
@@ -373,8 +368,6 @@ local function parse_procstat_cwd(out)
   return nil
 end
 
--- FreeBSD ships `procstat`; NetBSD exposes procfs when mounted. OpenBSD has no
--- cheap path, so it (and the miss cases) fall back to OSC 7 (see osc7_cwd).
 local function bsd_cwd(pid)
   if SYSNAME == "NetBSD" then
     return uv.fs_readlink("/proc/" .. pid .. "/cwd")
@@ -389,8 +382,6 @@ local function bsd_cwd(pid)
   return parse_procstat_cwd(out)
 end
 
--- Reading another process's cwd on Windows needs PEB access; instead cwd is
--- tracked live via OSC 7 (see osc7_cwd), falling back to the recorded cwd.
 local function windows_cwd(_)
   return nil
 end
@@ -417,9 +408,6 @@ local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBS
 local IS_WINDOWS = SYSNAME == "Windows_NT"
 local SEP = IS_WINDOWS and "\\" or "/"
 
--- OSC 7: the shell reports its cwd as ESC ] 7 ; file://<host>/<path> ST.
--- This is how cwd stays live on every OS (BSD/Windows included) when the shell
--- emits it; enable_shell_integration wires the common shells to do so.
 ---@return string|nil
 local function osc7_cwd(seq)
   local path = seq:match("]7;file://[^/]*(/[^\007\027]*)")
@@ -430,7 +418,7 @@ local function osc7_cwd(seq)
     return string.char(tonumber(h, 16))
   end)
   if IS_WINDOWS and path:match("^/%a:") then
-    path = path:sub(2) -- /C:/... -> C:/...
+    path = path:sub(2)
   end
   return path
 end
@@ -1445,7 +1433,6 @@ function M.setup(opts)
       shell_cache[ev.buf] = nil
     end,
   })
-  -- Track cwd live from the shell's OSC 7 reports (first-class on every OS).
   pcall(vim.api.nvim_create_autocmd, "TermRequest", {
     group = group,
     callback = function(ev)
