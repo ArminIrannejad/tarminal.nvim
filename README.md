@@ -1,4 +1,6 @@
 # tarminal.nvim
+> [!NOTE]
+> This plugin is still very much WIP
 
 A terminal runner and REPL for Neovim.
 
