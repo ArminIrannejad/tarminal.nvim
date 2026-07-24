@@ -383,6 +383,24 @@ local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBS
 local IS_WINDOWS = SYSNAME == "Windows_NT"
 local SEP = IS_WINDOWS and "\\" or "/"
 
+-- OSC 7: the shell reports its cwd as ESC ] 7 ; file://<host>/<path> ST.
+-- This is how cwd stays live on every OS (BSD/Windows included) when the shell
+-- emits it; enable_shell_integration wires the common shells to do so.
+---@return string|nil
+local function osc7_cwd(seq)
+  local path = seq:match("]7;file://[^/]*(/[^\007\027]*)")
+  if not path then
+    return nil
+  end
+  path = path:gsub("%%(%x%x)", function(h)
+    return string.char(tonumber(h, 16))
+  end)
+  if IS_WINDOWS and path:match("^/%a:") then
+    path = path:sub(2) -- /C:/... -> C:/...
+  end
+  return path
+end
+
 local SHELL_TTL = 1000
 local shell_cache = {}
 
@@ -1390,6 +1408,23 @@ function M.setup(opts)
     group = group,
     callback = function(ev)
       shell_cache[ev.buf] = nil
+    end,
+  })
+  -- Track cwd live from the shell's OSC 7 reports (first-class on every OS).
+  pcall(vim.api.nvim_create_autocmd, "TermRequest", {
+    group = group,
+    callback = function(ev)
+      if vim.bo[ev.buf].filetype ~= "tarminal" then
+        return
+      end
+      local seq = type(ev.data) == "table" and ev.data.sequence or ev.data
+      if type(seq) ~= "string" then
+        return
+      end
+      local cwd = osc7_cwd(seq)
+      if cwd and cwd ~= "" then
+        vim.b[ev.buf].term_cwd = cwd
+      end
     end,
   })
 end
