@@ -331,12 +331,32 @@ local function darwin_cwd(pid)
   return parse_lsof_cwd(out)
 end
 
--- TODO: bsd
-local function bsd_cwd(_)
+-- FreeBSD ships `procstat`; NetBSD exposes procfs when mounted. OpenBSD has no
+-- cheap path, so it (and the miss cases) fall back to OSC 7 (see osc7_cwd).
+local function bsd_cwd(pid)
+  if SYSNAME == "NetBSD" then
+    return uv.fs_readlink("/proc/" .. pid .. "/cwd")
+  end
+  if SYSNAME ~= "FreeBSD" then
+    return nil
+  end
+  local out = vim.fn.system({ "procstat", "-f", tostring(pid) })
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  for line in out:gmatch("[^\n]+") do
+    if line:match("^%s*%d+%s+%S+%s+cwd%s") then
+      local p = line:match("(/.*)$")
+      if p then
+        return vim.trim(p)
+      end
+    end
+  end
   return nil
 end
 
--- TODO: wind
+-- Reading another process's cwd on Windows needs PEB access; instead cwd is
+-- tracked live via OSC 7 (see osc7_cwd), falling back to the recorded cwd.
 local function windows_cwd(_)
   return nil
 end
