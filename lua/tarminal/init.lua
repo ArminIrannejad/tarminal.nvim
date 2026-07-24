@@ -27,6 +27,7 @@ local SYSNAME = (uv.os_uname() or {}).sysname or ""
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a time binary exists
 ---@field banner boolean print a RUN[n] banner before each run
+---@field shell_integration boolean emit + track cwd via OSC 7 in the spawned shell
 ---@field runners table<string, string|tarminal.Runner> filetype -> run command
 ---@field compilers string[] program names built with `-o` then run
 ---@field repls table<string, string|tarminal.Repl> filetype -> REPL command
@@ -71,6 +72,7 @@ local defaults = {
   cell_marker = "# COMMAND ----------",
   time_runs = true,
   banner = true,
+  shell_integration = true,
   runners = {
     python = "python",
     sh = "bash",
@@ -225,6 +227,28 @@ end
 local function term_cd(buf, dir)
   term_send_command(buf, "cd " .. vim.fn.shellescape(dir))
   vim.b[buf].term_cwd = dir
+end
+
+-- Per-shell snippets that make the shell emit OSC 7 on each prompt (printf sees
+-- the literal backslash escapes below and expands them). Appended after the
+-- user's rc, so they win over it. Unknown shells are left to their own config.
+local OSC7_SETUP = {
+  bash = [[__tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD"; }; case ";${PROMPT_COMMAND};" in *__tarminal_osc7*) ;; *) PROMPT_COMMAND="__tarminal_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac]],
+  zsh = [[autoload -Uz add-zsh-hook 2>/dev/null; __tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOST:-}" "$PWD"; }; add-zsh-hook precmd __tarminal_osc7 2>/dev/null || precmd_functions+=(__tarminal_osc7)]],
+  pwsh = [[try { if (-not (Test-Path function:__tarminal_prompt)) { $function:__tarminal_prompt = $function:prompt; function global:prompt { try { $p = ((Get-Location).ProviderPath -replace '\\','/'); [Console]::Write("$([char]27)]7;file://$([System.Net.Dns]::GetHostName())/$p$([char]27)\") } catch {}; & $function:__tarminal_prompt } } } catch {}]],
+}
+OSC7_SETUP.powershell = OSC7_SETUP.pwsh
+
+local function enable_shell_integration(buf)
+  if not M.config.shell_integration then
+    return
+  end
+  local exe = vim.split(M.config.shell, "%s+", { trimempty = true })[1] or ""
+  local name = vim.fn.fnamemodify(exe, ":t:r"):lower()
+  local snippet = OSC7_SETUP[name]
+  if snippet then
+    term_send_command(buf, snippet)
+  end
 end
 
 ---@param follow tarminal.Follow
@@ -966,6 +990,7 @@ local function get_or_create_shell_term()
     return nil
   end
   vim.b[buf].is_shell = true
+  enable_shell_integration(buf)
   return buf, win
 end
 
