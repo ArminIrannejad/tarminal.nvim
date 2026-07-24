@@ -111,9 +111,9 @@ local defaults = {
   -- tried in order; add your own for tools these miss
   error_patterns = {
     { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
-    { pattern = PATH .. ":(%d+):(%d+)",          file = 1, lnum = 2, col = 3 },
-    { pattern = PATH .. ":(%d+):",               file = 1, lnum = 2 },
-    { pattern = 'File "([^"]+)", line (%d+)',    file = 1, lnum = 2 },
+    { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
+    { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
+    { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
   },
   error_threshold = 0,
   quickfix = {
@@ -573,10 +573,10 @@ local function pick_code_win()
   local tab = vim.api.nvim_get_current_tabpage()
   for _, win in ipairs(wins) do
     if
-        win ~= 0
-        and vim.api.nvim_win_is_valid(win)
-        and vim.api.nvim_win_get_tabpage(win) == tab
-        and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == ""
+      win ~= 0
+      and vim.api.nvim_win_is_valid(win)
+      and vim.api.nvim_win_get_tabpage(win) == tab
+      and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == ""
     then
       return win
     end
@@ -701,7 +701,6 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       M._watch_timer = nil
     end
   end
-
 
   local function flush_pin()
     if not pin_row then
@@ -917,7 +916,6 @@ end
 local function execute_in_shell(cmd, dir)
   local code_win = vim.api.nvim_get_current_win()
 
-
   local existing = find_live_terminal("is_shell", true)
   if existing and term_busy(existing, true) then
     ensure_window_for_buf(existing)
@@ -931,7 +929,6 @@ local function execute_in_shell(cmd, dir)
     vim.api.nvim_set_current_win(code_win)
     return
   end
-
 
   vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
 
@@ -959,7 +956,6 @@ local function execute_in_shell(cmd, dir)
   prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
-
 
   focus_after_send(term_win, code_win, M.config.follow_run, banner ~= nil)
 end
@@ -1318,7 +1314,6 @@ local function define_error_highlight()
   local warn = vim.api.nvim_get_hl(0, { name = "DiagnosticWarn", link = false })
   vim.api.nvim_set_hl(0, "TarminalWarning", { fg = warn.fg or "Yellow", bold = true })
 end
-
 
 ---@param opts tarminal.Config|nil merged over the defaults
 function M.setup(opts)
