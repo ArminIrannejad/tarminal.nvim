@@ -239,13 +239,18 @@ local OSC7_SETUP = {
 }
 OSC7_SETUP.powershell = OSC7_SETUP.pwsh
 
+-- OSC 7 snippet for the shell in `cmd`, or nil for shells we don't wire up.
+local function osc7_snippet(cmd)
+  local exe = vim.split(cmd, "%s+", { trimempty = true })[1] or ""
+  local name = vim.fn.fnamemodify(exe:gsub("\\", "/"), ":t:r"):lower()
+  return OSC7_SETUP[name]
+end
+
 local function enable_shell_integration(buf)
   if not M.config.shell_integration then
     return
   end
-  local exe = vim.split(M.config.shell, "%s+", { trimempty = true })[1] or ""
-  local name = vim.fn.fnamemodify(exe, ":t:r"):lower()
-  local snippet = OSC7_SETUP[name]
+  local snippet = osc7_snippet(M.config.shell)
   if snippet then
     term_send_command(buf, snippet)
   end
@@ -355,6 +360,19 @@ local function darwin_cwd(pid)
   return parse_lsof_cwd(out)
 end
 
+-- procstat -f <pid> lists fds; the cwd row is `<pid> <comm> cwd ... <path>`.
+local function parse_procstat_cwd(out)
+  for line in out:gmatch("[^\n]+") do
+    if line:match("^%s*%d+%s+%S+%s+cwd%s") then
+      local p = line:match("(/.*)$")
+      if p then
+        return vim.trim(p)
+      end
+    end
+  end
+  return nil
+end
+
 -- FreeBSD ships `procstat`; NetBSD exposes procfs when mounted. OpenBSD has no
 -- cheap path, so it (and the miss cases) fall back to OSC 7 (see osc7_cwd).
 local function bsd_cwd(pid)
@@ -368,15 +386,7 @@ local function bsd_cwd(pid)
   if vim.v.shell_error ~= 0 then
     return nil
   end
-  for line in out:gmatch("[^\n]+") do
-    if line:match("^%s*%d+%s+%S+%s+cwd%s") then
-      local p = line:match("(/.*)$")
-      if p then
-        return vim.trim(p)
-      end
-    end
-  end
-  return nil
+  return parse_procstat_cwd(out)
 end
 
 -- Reading another process's cwd on Windows needs PEB access; instead cwd is
