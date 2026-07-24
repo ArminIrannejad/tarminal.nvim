@@ -336,7 +336,33 @@ local function bsd_cwd(_)
   return nil
 end
 
+-- No cheap way to read another process's cwd on Windows (needs PEB access).
+-- Degrade like BSD: fall back to the cwd we record ourselves.
+local function windows_cwd(_)
+  return nil
+end
+
+local PWSH = vim.fn.exepath("pwsh")
+if PWSH == "" then
+  PWSH = "powershell"
+end
+
+local function windows_has_child(pid)
+  local out = vim.fn.system({
+    PWSH,
+    "-NoProfile",
+    "-Command",
+    "(Get-CimInstance Win32_Process -Filter 'ParentProcessId=" .. pid .. "').Count",
+  })
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  return (tonumber(vim.trim(out)) or 0) > 0
+end
+
 local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBSD"
+local IS_WINDOWS = SYSNAME == "Windows_NT"
+local SEP = IS_WINDOWS and "\\" or "/"
 
 local SHELL_TTL = 1000
 local shell_cache = {}
@@ -372,6 +398,8 @@ local function term_cwd(buf)
       cwd = memo(buf, "cwd", darwin_cwd, pid)
     elseif IS_BSD then
       cwd = memo(buf, "cwd", bsd_cwd, pid)
+    elseif IS_WINDOWS then
+      cwd = windows_cwd(pid)
     end
     if cwd then
       return cwd
@@ -393,6 +421,8 @@ local function term_busy(buf, fresh)
       return ps_busy(pid)
     end
     return memo(buf, "busy", ps_busy, pid)
+  elseif IS_WINDOWS then
+    return memo(buf, "busy", windows_has_child, pid)
   end
   return nil
 end
@@ -408,6 +438,8 @@ local function shell_has_child(buf)
     return linux_has_child(pid)
   elseif SYSNAME == "Darwin" or IS_BSD then
     return pgrep_has_child(pid)
+  elseif IS_WINDOWS then
+    return windows_has_child(pid)
   end
   return nil
 end
