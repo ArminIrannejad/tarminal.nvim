@@ -336,8 +336,7 @@ local function bsd_cwd(_)
   return nil
 end
 
--- No cheap way to read another process's cwd on Windows (needs PEB access).
--- Degrade like BSD: fall back to the cwd we record ourselves.
+-- TODO: wind
 local function windows_cwd(_)
   return nil
 end
@@ -460,15 +459,16 @@ local function resolve_file(path, term_buf)
     path = vim.fn.expand(path)
   end
   local candidates
-  if path:sub(1, 1) == "/" then
+  local is_abs = path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil
+  if is_abs then
     candidates = { path }
   else
     candidates = {}
     local cwd = term_cwd(term_buf)
     if cwd then
-      candidates[#candidates + 1] = cwd .. "/" .. path
+      candidates[#candidates + 1] = cwd .. SEP .. path
     end
-    candidates[#candidates + 1] = vim.fn.getcwd() .. "/" .. path
+    candidates[#candidates + 1] = vim.fn.getcwd() .. SEP .. path
   end
   for _, p in ipairs(candidates) do
     if vim.fn.filereadable(p) == 1 then
