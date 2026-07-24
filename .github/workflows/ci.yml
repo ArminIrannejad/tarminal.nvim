@@ -16,12 +16,18 @@ jobs:
           version: latest
           args: --check lua/ plugin/ tests/
 
+  # Full behavioral suite on the POSIX platforms (spawns real shells).
   test:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         neovim: [v0.9.5, stable, nightly]
+        exclude:
+          # no v0.9.5 build for macOS arm64 runners
+          - os: macos-latest
+            neovim: v0.9.5
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: rhysd/action-setup-vim@v1
@@ -29,3 +35,34 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim }}
       - run: make test
+
+  # FreeBSD runs the full suite too, exercising the BSD probes (procstat, ps,
+  # pgrep) that the Linux/macOS paths don't.
+  test-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y neovim git gmake
+          run: |
+            gmake test
+
+  # Windows has no POSIX shell, so the behavioral suite can't run; the
+  # platform-portable unit tests cover the Windows-specific code paths.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .deps/plenary.nvim
+      - name: Platform unit tests
+        run: >
+          nvim --headless --noplugin -u tests/minimal_init.lua
+          -c "PlenaryBustedDirectory tests/platform { minimal_init = 'tests/minimal_init.lua' }"
