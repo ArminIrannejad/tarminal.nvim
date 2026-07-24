@@ -111,9 +111,9 @@ local defaults = {
   -- tried in order; add your own for tools these miss
   error_patterns = {
     { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
-    { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
-    { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
-    { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
+    { pattern = PATH .. ":(%d+):(%d+)",          file = 1, lnum = 2, col = 3 },
+    { pattern = PATH .. ":(%d+):",               file = 1, lnum = 2 },
+    { pattern = 'File "([^"]+)", line (%d+)',    file = 1, lnum = 2 },
   },
   error_threshold = 0,
   quickfix = {
@@ -186,7 +186,6 @@ end
 ---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
   local win = terminal_split()
-  -- jobstart (not :terminal); list form spawns the shell directly (jobpid = shell)
   vim.cmd("enew")
   local buf = vim.api.nvim_get_current_buf()
   local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
@@ -245,7 +244,6 @@ local function focus_after_send(term_win, code_win, follow, start_at_top)
   end
 end
 
--- job -> shell pid, or nil (dedupes the boilerplate the term_* wrappers share)
 ---@return integer|nil
 local function term_pid(buf)
   local job = get_job_id(buf)
@@ -259,12 +257,10 @@ local function term_pid(buf)
   return nil
 end
 
--- process introspection: linux reads procfs; macos/bsd shell out. nil = unknown
 local function linux_cwd(pid)
   return uv.fs_readlink("/proc/" .. pid .. "/cwd")
 end
 
--- foreground job? pgrp vs tpgid from /proc/stat; dead group with no procs = idle
 local function linux_busy(pid)
   local f = io.open("/proc/" .. pid .. "/stat", "r")
   if not f then
@@ -272,7 +268,6 @@ local function linux_busy(pid)
   end
   local stat = f:read("*a") or ""
   f:close()
-  -- comm may contain ")": parse after the last
   local rest = stat:match(".*%)%s+(.*)")
   if not rest then
     return nil
@@ -288,7 +283,6 @@ local function linux_busy(pid)
   return uv.kill(-tpgid, 0) == 0
 end
 
--- via /proc children; works without job control
 local function linux_has_child(pid)
   local f = io.open("/proc/" .. pid .. "/task/" .. pid .. "/children", "r")
   if not f then
@@ -299,13 +293,11 @@ local function linux_has_child(pid)
   return vim.trim(kids) ~= ""
 end
 
--- macos/bsd: pgrep lists child pids; exit 0 iff any exist
 local function pgrep_has_child(pid)
   local out = vim.fn.system({ "pgrep", "-P", tostring(pid) })
   return vim.v.shell_error == 0 and vim.trim(out) ~= ""
 end
 
--- macos/bsd: foreground job? shell pgid vs terminal tpgid via ps, like linux_busy
 local function ps_busy(pid)
   local out = vim.fn.system({ "ps", "-o", "pgid=", "-o", "tpgid=", "-p", tostring(pid) })
   if vim.v.shell_error ~= 0 then
@@ -322,18 +314,15 @@ local function ps_busy(pid)
   return uv.kill(-tpgid, 0) == 0
 end
 
--- lsof path, resolved once ("" from exepath -> stock location)
 local LSOF = vim.fn.exepath("lsof")
 if LSOF == "" then
   LSOF = "/usr/sbin/lsof"
 end
 
--- cwd from `lsof -Fn`: lines are p<pid>, fcwd, n<path>; split out to unit-test
 local function parse_lsof_cwd(out)
   return out:match("\nn([^\n]+)") or out:match("^n([^\n]+)")
 end
 
--- macOS has no procfs; ask lsof for just the cwd descriptor (-d cwd).
 local function darwin_cwd(pid)
   local out = vim.fn.system({ LSOF, "-a", "-p", tostring(pid), "-d", "cwd", "-Fn" })
   if vim.v.shell_error ~= 0 then
@@ -342,19 +331,16 @@ local function darwin_cwd(pid)
   return parse_lsof_cwd(out)
 end
 
--- TODO(bsd): procstat -f <pid> (or fstat) for cwd; nil -> term_cwd's cached fallback
+-- TODO: bsd
 local function bsd_cwd(_)
   return nil
 end
 
 local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBSD"
 
--- ms; memoize shell-outs this long so heavy output can't spawn lsof/ps per
--- watcher scan (time-based, not changedtick: output must not count as a cd)
 local SHELL_TTL = 1000
-local shell_cache = {} -- buf -> { cwd|busy = {t, v} }; cleared on BufWipeout
+local shell_cache = {}
 
--- macos/bsd only; linux stays live (procfs is cheap)
 local function memo(buf, kind, provider, pid)
   local slot = shell_cache[buf] or {}
   shell_cache[buf] = slot
@@ -368,8 +354,6 @@ local function memo(buf, kind, provider, pid)
   return v
 end
 
--- a new run: seed the known `cd <dir>` (no stale cwd, no lsof racing the cd) and
--- drop any pre-run busy sample so the watcher re-checks instead of stopping on it
 local function prep_run_cache(buf, dir)
   local slot = shell_cache[buf] or {}
   shell_cache[buf] = slot
@@ -383,7 +367,7 @@ local function term_cwd(buf)
   if pid then
     local cwd
     if SYSNAME == "Linux" then
-      cwd = linux_cwd(pid) -- procfs readlink is free; no cache needed
+      cwd = linux_cwd(pid)
     elseif SYSNAME == "Darwin" then
       cwd = memo(buf, "cwd", darwin_cwd, pid)
     elseif IS_BSD then
@@ -396,8 +380,6 @@ local function term_cwd(buf)
   return vim.b[buf].term_cwd
 end
 
--- fresh: a one-off read (the run guard) that must not seed the watcher cache,
--- else the watcher could reuse this pre-run idle value and stop mid-command
 ---@return boolean|nil busy nil when undeterminable
 local function term_busy(buf, fresh)
   local pid = term_pid(buf)
@@ -430,7 +412,6 @@ local function shell_has_child(buf)
   return nil
 end
 
--- wait for the REPL to become the shell's child; re-check to reject a flicker
 ---@return boolean
 local function wait_for_repl(buf)
   if shell_has_child(buf) == nil then
@@ -531,9 +512,9 @@ local function match_patterns(line, term_buf)
             sev = severity_rank(word),
           }
         end
-        break -- leftmost hit for this pattern
+        break
       end
-      init = e + 1 -- didn't resolve; keep scanning
+      init = e + 1
     end
   end
   if best then
@@ -551,7 +532,6 @@ local function parse_error_line(line, term_buf)
 
   local init = 1
   while true do
-    -- allow parens (paths like `/tmp/foo(audit).c`); resolve_file_suffix unwraps
     local s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
     if not s then
       return
@@ -593,10 +573,10 @@ local function pick_code_win()
   local tab = vim.api.nvim_get_current_tabpage()
   for _, win in ipairs(wins) do
     if
-      win ~= 0
-      and vim.api.nvim_win_is_valid(win)
-      and vim.api.nvim_win_get_tabpage(win) == tab
-      and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == ""
+        win ~= 0
+        and vim.api.nvim_win_is_valid(win)
+        and vim.api.nvim_win_get_tabpage(win) == tab
+        and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == ""
     then
       return win
     end
@@ -649,7 +629,7 @@ function M.jump_to_error()
 end
 
 local WATCH_INTERVAL = 200
-local WATCH_TIMEOUT = 30000 -- of silence; new output resets it
+local WATCH_TIMEOUT = 30000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
@@ -706,10 +686,10 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
   end
 
   local elapsed = 0
-  local pinned = banner_token == nil -- no banner, nothing to pin to
-  local pin_row = nil -- deferred align target while in terminal mode
+  local pinned = banner_token == nil
+  local pin_row = nil
   local parked = false
-  local seen = false -- run output scanned at least once
+  local seen = false
   local last_tick = vim.api.nvim_buf_get_changedtick(term_buf)
   local timer = uv.new_timer()
   M._watch_timer = timer
@@ -722,7 +702,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
     end
   end
 
-  -- align the deferred pin once the run settles just scroll so the cursor stays put
+
   local function flush_pin()
     if not pin_row then
       return
@@ -774,13 +754,12 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       seen = true
 
       local win = find_win_for_buf(term_buf)
-      -- don't steal the cursor while typing
+
       local typing = win == vim.api.nvim_get_current_win() and vim.api.nvim_get_mode().mode:sub(1, 1) == "t"
 
       if not pinned then
         pinned = true
         if win and typing then
-          -- terminal mode follows the bottom so defer the align to flush_pin
           pin_row = banner_row
         elseif win then
           vim.api.nvim_win_call(win, function()
@@ -790,7 +769,6 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       end
 
       if not scan_errors then
-        -- keep watching so the deferred pin can flush otherwise done
         if not pin_row then
           stop()
         end
@@ -804,7 +782,6 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
         local logical, first, last = logical_line_at(lines, i, width)
         local file, _, _, span_s, span_e, sev = parse_error_line(logical, term_buf)
         if file then
-          -- highlight all; park only at/above the threshold
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
           if not parked and sev >= M.config.error_threshold then
             parked = true
@@ -867,7 +844,6 @@ function M.errors_to_quickfix()
       start_row = banner_row + 1
     end
   elseif vim.b[term_buf].run_start_row then
-    -- bannerless: scan below the prompt
     start_row = vim.b[term_buf].run_start_row + 1
   end
 
@@ -929,7 +905,6 @@ function M.toggle()
   local win = find_win_for_buf(buf)
   if win then
     if not pcall(vim.api.nvim_win_close, win, false) then
-      -- last window (E444): swap in an empty buffer instead
       vim.api.nvim_win_call(win, function()
         vim.cmd("enew")
       end)
@@ -942,7 +917,7 @@ end
 local function execute_in_shell(cmd, dir)
   local code_win = vim.api.nvim_get_current_win()
 
-  -- a busy shell would eat the send as stdin; show it so it can be interrupted
+
   local existing = find_live_terminal("is_shell", true)
   if existing and term_busy(existing, true) then
     ensure_window_for_buf(existing)
@@ -957,7 +932,7 @@ local function execute_in_shell(cmd, dir)
     return
   end
 
-  -- terminal rewrites lines in place; drop old highlights
+
   vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
 
   M._run_id = (M._run_id or 0) + 1
@@ -985,7 +960,7 @@ local function execute_in_shell(cmd, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
-  -- best effort scroll the watcher will refine to the banner
+
   focus_after_send(term_win, code_win, M.config.follow_run, banner ~= nil)
 end
 
@@ -1136,7 +1111,6 @@ function M.exec(arg, verbatim)
   execute_in_shell(cmd, M._last_exec_dir)
 end
 
--- extend col to the last byte of its char (getpos gives the first byte)
 ---@return integer
 local function char_end_col(line, col)
   if col > #line then
@@ -1170,6 +1144,10 @@ local function get_visual_selection(visual_mode)
     local c1 = vim.fn.strdisplaywidth(lines[1]:sub(1, col_start - 1)) + 1
     local c2 = vim.fn.strdisplaywidth(lines[#lines]:sub(1, col_end - 1)) + 1
     local vleft, vright = math.min(c1, c2), math.max(c1, c2)
+    if vim.o.selection == "exclusive" then
+      -- exclusive drops the cursor column the rightmost cell of a normal block
+      vright = vright - 1
+    end
     for i, line in ipairs(lines) do
       local sbyte, ebyte
       local col = 1
@@ -1190,8 +1168,9 @@ local function get_visual_selection(visual_mode)
   end
 
   local end_line = vim.api.nvim_buf_get_lines(0, line_end - 1, line_end, false)[1] or ""
-  local lines =
-    vim.api.nvim_buf_get_text(0, line_start - 1, col_start - 1, line_end - 1, char_end_col(end_line, col_end), {})
+  -- exclusive drops the char under '> so stop before it not at its last byte
+  local end_col = vim.o.selection == "exclusive" and (col_end - 1) or char_end_col(end_line, col_end)
+  local lines = vim.api.nvim_buf_get_text(0, line_start - 1, col_start - 1, line_end - 1, end_col, {})
   return table.concat(lines, "\n")
 end
 
@@ -1340,11 +1319,10 @@ local function define_error_highlight()
   vim.api.nvim_set_hl(0, "TarminalWarning", { fg = warn.fg or "Yellow", bold = true })
 end
 
---- Settings only; tarminal never creates keymaps.
+
 ---@param opts tarminal.Config|nil merged over the defaults
 function M.setup(opts)
   opts = opts or {}
-  -- error_patterns is a list; prepend user's to built-ins (deep_extend index-merges)
   local extra = opts.error_patterns
   if extra then
     opts = vim.tbl_extend("force", {}, opts) -- shallow copy; don't mutate caller

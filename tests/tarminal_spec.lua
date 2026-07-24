@@ -254,6 +254,30 @@ describe("tarminal", function()
     assert.equals("é\nb", get_selection("\22"))
   end)
 
+  it("drops the endpoint char in a charwise selection when selection=exclusive", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefgh" })
+    vim.fn.setpos("'<", { 0, 1, 3, 0 })
+    vim.fn.setpos("'>", { 0, 1, 5, 0 })
+    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local prev = vim.o.selection
+    vim.o.selection = "exclusive"
+    local got = get_selection("v")
+    vim.o.selection = prev -- restore before asserting so a failure can't leak
+    assert.equals("cd", got)
+  end)
+
+  it("drops the endpoint column in a blockwise selection when selection=exclusive", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcd", "efgh" })
+    vim.fn.setpos("'<", { 0, 1, 2, 0 })
+    vim.fn.setpos("'>", { 0, 2, 4, 0 })
+    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local prev = vim.o.selection
+    vim.o.selection = "exclusive"
+    local got = get_selection("\22")
+    vim.o.selection = prev
+    assert.equals("bc\nfg", got) -- inclusive would keep the endpoint column: "bcd"/"fgh"
+  end)
+
   it("cuts a blockwise selection at screen columns across tab widths", function()
     vim.bo.tabstop = 8
     -- A and B both sit at screen column 9, but at different byte columns
