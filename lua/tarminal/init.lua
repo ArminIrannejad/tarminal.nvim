@@ -202,7 +202,12 @@ local function open_shell_term(name)
     pcall(vim.api.nvim_win_close, win, true)
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
     local msg = not ok and tostring(job):match("(E%d+:[^\n]*)")
-    vim.notify(msg or ("tarminal: could not start shell: " .. M.config.shell), vim.log.levels.ERROR)
+    local fail = "tarminal: could not start shell: " .. M.config.shell
+    -- runs are POSIX-shell shaped; on Windows point users at a bash-like shell
+    if SYSNAME == "Windows_NT" then
+      fail = fail .. " (set `shell` to a POSIX shell: Git Bash, MSYS2, or WSL)"
+    end
+    vim.notify(msg or fail, vim.log.levels.ERROR)
     return nil
   end
   vim.b[buf].term_cwd = vim.fn.getcwd()
