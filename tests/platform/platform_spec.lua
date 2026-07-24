@@ -76,6 +76,20 @@ describe("tarminal platform", function()
     assert.is_nil(parse(" 1234 bash 0 t c rw------ 3 0 - /dev/pts/1"))
   end)
 
+  it("keeps the drive letter in a Windows diagnostic path", function()
+    if sysname() ~= "Windows_NT" then
+      return
+    end
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int main(){}" }, file)
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parsed, line, col = parse(file .. ":10:2: error", vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+    assert.equals(file, parsed)
+    assert.equals(10, line)
+    assert.equals(2, col)
+  end)
+
   it("has no cheap native cwd probe on Windows", function()
     local windows_cwd = get_upvalue(tarminal.jump_to_error, "windows_cwd")
     assert.is_nil(windows_cwd(1234))

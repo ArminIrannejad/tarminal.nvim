@@ -58,8 +58,9 @@ local SYSNAME = (uv.os_uname() or {}).sysname or ""
 ---@field block_open string|nil marker opening a multi-line block (ghci `:{`)
 ---@field block_close string|nil marker closing it (ghci `:}`)
 
--- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback)
-local PATH = "([^%s:%(%)%[%]<>'\"]+)"
+-- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback).
+-- an optional leading drive letter keeps Windows paths (C:\...) intact.
+local PATH = "([%a]?:?[^%s:%(%)%[%]<>'\"]+)"
 
 local defaults = {
   split_height = 12,
@@ -624,7 +625,7 @@ local function parse_error_line(line, term_buf)
 
   local init = 1
   while true do
-    local s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
+    local s, e, f, l, c = line:find("([%a]?:?[^:'\"]+):(%d+):?(%d*)", init)
     if not s then
       return
     end
