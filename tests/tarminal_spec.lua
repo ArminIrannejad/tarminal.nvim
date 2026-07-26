@@ -2,44 +2,9 @@ describe("tarminal", function()
   local tarminal
   local errors = require("tarminal.errors")
   local platform = require("tarminal.platform")
+  local repl = require("tarminal.repl")
+  local run = require("tarminal.run")
   local term = require("tarminal.term")
-
-  -- Search `fn`'s upvalues for `wanted`, descending into function-valued
-  -- upvalues (locals extracted into helpers, like execute_in_shell, put
-  -- what they capture one level deeper).
-  local function find_upvalue(fn, wanted, seen)
-    if seen[fn] then
-      return nil
-    end
-    seen[fn] = true
-    local fns = {}
-    for i = 1, 40 do
-      local name, value = debug.getupvalue(fn, i)
-      if not name then
-        break
-      end
-      if name == wanted then
-        return value
-      end
-      if type(value) == "function" then
-        fns[#fns + 1] = value
-      end
-    end
-    for _, f in ipairs(fns) do
-      local value = find_upvalue(f, wanted, seen)
-      if value ~= nil then
-        return value
-      end
-    end
-  end
-
-  local function get_upvalue(fn, wanted)
-    local value = find_upvalue(fn, wanted, {})
-    if value == nil then
-      error("missing upvalue: " .. wanted)
-    end
-    return value
-  end
 
   -- Wait until run `id`'s banner is printed and the shell has taken the
   -- foreground back: only then will a follow-up run() not be refused by
@@ -115,7 +80,7 @@ describe("tarminal", function()
 
   it("automatically compiles and runs compiler-based runners", function()
     tarminal.setup({ time_runs = false, runners = { c = "clang -Wpedantic -Wall" } })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local command = build({
       file = "/tmp/example.c",
       stem = "example",
@@ -127,13 +92,13 @@ describe("tarminal", function()
 
   it("appends the file to interpreted runners", function()
     tarminal.setup({ time_runs = false })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
     assert.equals("python '/tmp/example.py'", build(ctx))
   end)
 
   it("times runs only when a time binary is installed", function()
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local py = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
     local c = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
 
@@ -150,7 +115,7 @@ describe("tarminal", function()
 
   it("does not overwrite an extensionless source file when compiling", function()
     tarminal.setup({ time_runs = false })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local command = build({ file = "/tmp/prog", stem = "prog", dir = "/tmp", ft = "c" })
     assert.equals("cc '/tmp/prog' -o 'prog.out' && ./'prog.out'", command)
   end)
@@ -160,7 +125,7 @@ describe("tarminal", function()
       time_runs = false,
       runners = { zig = { cmd = "zig build-exe", run_binary = true } },
     })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local command = build({
       file = "/tmp/example.zig",
       stem = "example",
@@ -175,21 +140,21 @@ describe("tarminal", function()
       time_runs = false,
       runners = { c = { cmd = "cc", run_binary = false } },
     })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("cc '/tmp/example.c'", build(ctx))
   end)
 
   it("infers running the binary by name for a table runner without a run_binary flag", function()
     tarminal.setup({ time_runs = false, runners = { c = { cmd = "clang -Wall" } } })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("clang -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
   it("appends a runner's args after the file", function()
     tarminal.setup({ time_runs = false })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     -- the bundled odin runner: `odin run <file> -file`
     local ctx = { file = "/tmp/example.odin", stem = "example", dir = "/tmp", ft = "odin" }
     assert.equals("odin run '/tmp/example.odin' -file", build(ctx))
@@ -200,13 +165,13 @@ describe("tarminal", function()
       time_runs = false,
       runners = { c = { cmd = "cc", args = "-lm", run_binary = true } },
     })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("cc '/tmp/example.c' -lm -o 'example' && ./'example'", build(ctx))
   end)
 
   it("recognizes compiler paths and versioned compiler names", function()
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
 
     tarminal.setup({ time_runs = false, runners = { c = "/usr/bin/clang-17 -Wall" } })
@@ -237,7 +202,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefgh" })
     vim.fn.setpos("'<", { 0, 1, 3, 0 })
     vim.fn.setpos("'>", { 0, 1, 5, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("cde", get_selection("v"))
   end)
 
@@ -245,7 +210,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcé" })
     vim.fn.setpos("'<", { 0, 1, 1, 0 })
     vim.fn.setpos("'>", { 0, 1, 4, 0 }) -- é occupies bytes 4-5
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("abcé", get_selection("v"))
   end)
 
@@ -253,7 +218,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "xéy", "abc" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 })
     vim.fn.setpos("'>", { 0, 2, 2, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("é\nb", get_selection("\22"))
   end)
 
@@ -261,7 +226,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefgh" })
     vim.fn.setpos("'<", { 0, 1, 3, 0 })
     vim.fn.setpos("'>", { 0, 1, 5, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     local prev = vim.o.selection
     vim.o.selection = "exclusive"
     local got = get_selection("v")
@@ -273,7 +238,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcd", "efgh" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 })
     vim.fn.setpos("'>", { 0, 2, 4, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     local prev = vim.o.selection
     vim.o.selection = "exclusive"
     local got = get_selection("\22")
@@ -288,13 +253,13 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "\tA", "12345678B" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 }) -- A, byte col 2, screen col 9
     vim.fn.setpos("'>", { 0, 2, 9, 0 }) -- B, byte col 9, screen col 9
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("A\nB", get_selection("\22"))
   end)
 
   it("extracts an explicit line range", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
-    local get_range = get_upvalue(tarminal.send_selection, "get_line_range")
+    local get_range = repl.get_line_range
     assert.equals("two\nthree", get_range(2, 3))
   end)
 
@@ -305,7 +270,7 @@ describe("tarminal", function()
       "print(2)",
     })
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
-    local get_cell = get_upvalue(tarminal.send_cell, "get_current_cell_text")
+    local get_cell = repl.get_current_cell_text
     assert.equals("print(2)\n", get_cell())
   end)
 
@@ -316,7 +281,7 @@ describe("tarminal", function()
       "print(2)",
     })
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
-    local get_cell = get_upvalue(tarminal.send_cell, "get_current_cell_text")
+    local get_cell = repl.get_current_cell_text
     assert.equals('print(1)\nprint("# COMMAND ----------")\nprint(2)\n', get_cell())
   end)
 
@@ -514,8 +479,8 @@ describe("tarminal", function()
   end)
 
   it("recognizes REPL entries that disable bracketed paste", function()
-    local send = get_upvalue(tarminal.send_cell, "send_to_repl")
-    local spec = get_upvalue(send, "repl_spec")
+    local send = repl.send_to_repl
+    local spec = repl.repl_spec
     local cmd, bracketed = spec("python")
     assert.equals("ipython", cmd)
     assert.is_true(bracketed)
@@ -630,8 +595,8 @@ describe("tarminal", function()
   end)
 
   it("exposes block markers through repl_spec", function()
-    local send = get_upvalue(tarminal.send_cell, "send_to_repl")
-    local spec = get_upvalue(send, "repl_spec")
+    local send = repl.send_to_repl
+    local spec = repl.repl_spec
     local cmd, _, block_open, block_close = spec("haskell")
     assert.equals("ghci", cmd)
     assert.equals(":{", block_open)
