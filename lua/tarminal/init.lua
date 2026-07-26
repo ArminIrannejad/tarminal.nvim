@@ -428,8 +428,22 @@ local function osc7_cwd(seq)
   path = path:gsub("%%(%x%x)", function(h)
     return string.char(tonumber(h, 16))
   end)
-  if IS_WINDOWS and path:match("^/%a:") then
-    path = path:sub(2)
+  if IS_WINDOWS then
+    -- pwsh emits /C:/x; Git Bash/MSYS emit /c/x; Cygwin emits /cygdrive/c/x
+    local drive = path:match("^/(%a:.*)$")
+    if drive then
+      return drive
+    end
+    local letter, rest = path:match("^/cygdrive/(%a)(/?.*)$")
+    if not letter then
+      letter, rest = path:match("^/(%a)(/.*)$")
+    end
+    if not letter then
+      letter, rest = path:match("^/(%a)$"), "/"
+    end
+    if letter then
+      return letter:upper() .. ":" .. (rest ~= "" and rest or "/")
+    end
   end
   return path
 end
@@ -1460,6 +1474,7 @@ function M.setup(opts)
       local cwd = osc7_cwd(seq)
       if cwd and cwd ~= "" then
         vim.b[ev.buf].term_cwd = cwd
+        vim.b[ev.buf].osc7_active = true
       end
     end,
   })

@@ -54,13 +54,21 @@ describe("tarminal platform", function()
     assert.is_nil(osc7_cwd(ESC .. "]0;a title" .. BEL))
   end)
 
-  it("strips the drive-letter slash from OSC 7 only on Windows", function()
+  it("translates OSC 7 drive paths only on Windows", function()
     local osc7_cwd = get_upvalue(tarminal.setup, "osc7_cwd")
-    local got = osc7_cwd("]7;file:///C:/Users/me\007")
-    if sysname() == "Windows_NT" then
-      assert.equals("C:/Users/me", got)
-    else
-      assert.equals("/C:/Users/me", got)
+    local cases = {
+      { "/C:/Users/me", "C:/Users/me" }, -- pwsh
+      { "/c/Users/me", "C:/Users/me" }, -- msys / git bash
+      { "/c", "C:/" },
+      { "/cygdrive/d/x", "D:/x" }, -- cygwin
+      { "/cygdrive/d", "D:/" },
+      { "//server/share/x", "//server/share/x" }, -- UNC passes through
+      { "/home/me", "/home/me" },
+    }
+    local windows = sysname() == "Windows_NT"
+    for _, case in ipairs(cases) do
+      local got = osc7_cwd("]7;file://host" .. case[1] .. "\007")
+      assert.equals(windows and case[2] or case[1], got, case[1])
     end
   end)
 
