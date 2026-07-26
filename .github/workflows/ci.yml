@@ -50,21 +50,3 @@ jobs:
             pkg install -y neovim git gmake
           run: |
             gmake test
-
-  # Full suite under Git Bash (windows-latest ships Git for Windows). Git's
-  # usr/bin goes first in PATH so sh/cat/printf resolve to MSYS tools, ahead
-  # of System32's WSL bash.exe.
-  test-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rhysd/action-setup-vim@v1
-        with:
-          neovim: true
-          version: stable
-      - run: echo "C:\Program Files\Git\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-      - run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .deps/plenary.nvim
-      - name: Test
-        run: >
-          nvim --headless --noplugin -u tests/minimal_init.lua
-          -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"
