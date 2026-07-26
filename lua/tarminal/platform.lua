@@ -7,7 +7,7 @@ local uv = vim.uv or vim.loop
 local M = {}
 
 local SYSNAME = util.SYSNAME
-local IS_BSD, IS_WINDOWS = util.IS_BSD, util.IS_WINDOWS
+local IS_BSD = util.IS_BSD
 local get_job_id = util.get_job_id
 
 ---@return integer|nil
@@ -123,78 +123,6 @@ local function bsd_cwd(pid)
   return parse_procstat_cwd(out)
 end
 
-local PWSH = vim.fn.exepath("pwsh")
-if PWSH == "" then
-  PWSH = "powershell"
-end
-
--- reads the shell's real cwd from its PEB (x64 offsets; 32-bit or elevated targets yield nil)
-local WIN_CWD_PS = [==[
-$ErrorActionPreference='SilentlyContinue'
-Add-Type -TypeDefinition @"
-using System; using System.Runtime.InteropServices;
-public static class TarminalCwd {
-  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr h, int c, byte[] i, int l, out int r);
-  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool b, int p);
-  [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr h, IntPtr a, byte[] b, IntPtr n, out IntPtr r);
-  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
-  static long ReadPtr(IntPtr h, long a) {
-    byte[] b = new byte[8]; IntPtr r;
-    return ReadProcessMemory(h, (IntPtr)a, b, (IntPtr)8, out r) ? BitConverter.ToInt64(b, 0) : 0;
-  }
-  public static string Get(int pid) {
-    IntPtr h = OpenProcess(0x0410, false, pid);
-    if (h == IntPtr.Zero) return null;
-    try {
-      byte[] pbi = new byte[48]; int ret;
-      if (NtQueryInformationProcess(h, 0, pbi, 48, out ret) != 0) return null;
-      long prm = ReadPtr(h, BitConverter.ToInt64(pbi, 8) + 0x20);
-      if (prm == 0) return null;
-      byte[] us = new byte[16]; IntPtr r;
-      if (!ReadProcessMemory(h, (IntPtr)(prm + 0x38), us, (IntPtr)16, out r)) return null;
-      ushort len = BitConverter.ToUInt16(us, 0);
-      long buf = BitConverter.ToInt64(us, 8);
-      if (len == 0 || len > 65534 || buf == 0) return null;
-      byte[] pb = new byte[len];
-      if (!ReadProcessMemory(h, (IntPtr)buf, pb, (IntPtr)len, out r)) return null;
-      return System.Text.Encoding.Unicode.GetString(pb);
-    } finally { CloseHandle(h); }
-  }
-}
-"@
-[TarminalCwd]::Get(%d)
-]==]
-
-local function windows_cwd_cmd(pid)
-  return { PWSH, "-NoProfile", "-NonInteractive", "-Command", WIN_CWD_PS:format(pid) }
-end
-
-local function parse_windows_cwd(out)
-  local path = vim.trim(out or "")
-  if not (path:match("^%a:[/\\]") or path:match("^\\\\")) then
-    return nil
-  end
-  if not path:match("^%a:[/\\]$") then
-    path = path:gsub("[/\\]+$", "")
-  end
-  return path
-end
-
--- probe pwsh is spawned by nvim, not the shell, so it never counts itself;
--- conhost is excluded in case one attaches under the shell
-local function windows_has_child(pid)
-  local out = vim.fn.system({
-    PWSH,
-    "-NoProfile",
-    "-Command",
-    "(Get-CimInstance Win32_Process -Filter 'ParentProcessId=" .. pid .. ' AND Name!="conhost.exe"\').Count',
-  })
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
-  return (tonumber(vim.trim(out)) or 0) > 0
-end
-
 ---@return string|nil
 local function osc7_cwd(seq)
   local path = seq:match("]7;file://[^/]*(/[^\007\027]*)")
@@ -204,23 +132,6 @@ local function osc7_cwd(seq)
   path = path:gsub("%%(%x%x)", function(h)
     return string.char(tonumber(h, 16))
   end)
-  if IS_WINDOWS then
-    -- pwsh emits /C:/x; Git Bash/MSYS emit /c/x; Cygwin emits /cygdrive/c/x
-    local drive = path:match("^/(%a:.*)$")
-    if drive then
-      return drive
-    end
-    local letter, rest = path:match("^/cygdrive/(%a)(/?.*)$")
-    if not letter then
-      letter, rest = path:match("^/(%a)(/.*)$")
-    end
-    if not letter then
-      letter, rest = path:match("^/(%a)$"), "/"
-    end
-    if letter then
-      return letter:upper() .. ":" .. (rest ~= "" and rest or "/")
-    end
-  end
   return path
 end
 
@@ -247,33 +158,6 @@ local function prep_run_cache(buf, dir)
   slot.busy = nil
 end
 
--- probe is slow (pwsh startup + Add-Type), so: skipped while OSC 7 reports,
--- refreshed async with a longer TTL, and never blocks — callers get the
--- cached value (or nil, falling back to b:term_cwd) while a probe is in flight
-local WIN_CWD_TTL = 5000
-
-local function windows_cwd(buf, pid)
-  if vim.b[buf].osc7_active or not vim.system then
-    return nil
-  end
-  local slot = shell_cache[buf] or {}
-  shell_cache[buf] = slot
-  local c = slot.cwd
-  if (c and uv.now() - c.t < WIN_CWD_TTL) or slot.cwd_probe then
-    return c and c.v
-  end
-  slot.cwd_probe = true
-  vim.system(windows_cwd_cmd(pid), { text = true, timeout = 8000 }, function(res)
-    vim.schedule(function()
-      slot.cwd_probe = nil
-      if shell_cache[buf] == slot then
-        slot.cwd = { t = uv.now(), v = parse_windows_cwd(res.stdout) }
-      end
-    end)
-  end)
-  return c and c.v
-end
-
 ---@return string|nil
 local function term_cwd(buf)
   local pid = term_pid(buf)
@@ -285,8 +169,6 @@ local function term_cwd(buf)
       cwd = memo(buf, "cwd", darwin_cwd, pid)
     elseif IS_BSD then
       cwd = memo(buf, "cwd", bsd_cwd, pid)
-    elseif IS_WINDOWS then
-      cwd = windows_cwd(buf, pid)
     end
     if cwd then
       return cwd
@@ -308,11 +190,6 @@ local function term_busy(buf, fresh)
       return ps_busy(pid)
     end
     return memo(buf, "busy", ps_busy, pid)
-  elseif IS_WINDOWS then
-    if fresh then
-      return windows_has_child(pid)
-    end
-    return memo(buf, "busy", windows_has_child, pid)
   end
   return nil
 end
@@ -328,8 +205,6 @@ local function shell_has_child(buf)
     return linux_has_child(pid)
   elseif SYSNAME == "Darwin" or IS_BSD then
     return pgrep_has_child(pid)
-  elseif IS_WINDOWS then
-    return windows_has_child(pid)
   end
   return nil
 end
@@ -350,9 +225,6 @@ end
 
 M.parse_lsof_cwd = parse_lsof_cwd
 M.parse_procstat_cwd = parse_procstat_cwd
-M.windows_cwd_cmd = windows_cwd_cmd
-M.parse_windows_cwd = parse_windows_cwd
-M.windows_cwd = windows_cwd
 M.osc7_cwd = osc7_cwd
 M.prep_run_cache = prep_run_cache
 M.clear_cache = clear_cache

@@ -178,30 +178,17 @@ describe("tarminal", function()
     assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
-  it("recognizes Windows compiler names and paths", function()
-    local build = run.build_runner_command
-    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
-
-    tarminal.setup({ time_runs = false, runners = { c = "gcc.exe" } })
-    assert.equals("gcc.exe '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
-
-    tarminal.setup({ time_runs = false, runners = { c = [[C:\msys64\bin\clang.exe -Wall]] } })
-    assert.equals([[C:\msys64\bin\clang.exe -Wall '/tmp/example.c' -o 'example' && ./'example']], build(ctx))
-  end)
-
   it("keeps a spaced shell path as one argv entry", function()
     assert.same({ "bash", "-l" }, term.shell_cmd("bash -l"))
 
-    if vim.fn.has("win32") == 0 then
-      local dir = vim.fn.tempname() .. " with space"
-      vim.fn.mkdir(dir, "p")
-      local exe = dir .. "/fakesh"
-      vim.fn.writefile({ "#!/bin/sh" }, exe)
-      vim.fn.setfperm(exe, "rwxr-xr-x")
-      assert.same({ exe }, term.shell_cmd(exe))
-      assert.same({ exe, "-l" }, term.shell_cmd(exe .. " -l"))
-      vim.fn.delete(dir, "rf")
-    end
+    local dir = vim.fn.tempname() .. " with space"
+    vim.fn.mkdir(dir, "p")
+    local exe = dir .. "/fakesh"
+    vim.fn.writefile({ "#!/bin/sh" }, exe)
+    vim.fn.setfperm(exe, "rwxr-xr-x")
+    assert.same({ exe }, term.shell_cmd(exe))
+    assert.same({ exe, "-l" }, term.shell_cmd(exe .. " -l"))
+    vim.fn.delete(dir, "rf")
   end)
 
   it("runs a named file with its configured runner", function()
@@ -880,9 +867,8 @@ describe("tarminal", function()
   it("refuses to run while the terminal is busy with a command", function()
     -- foreground-job detection needs a shell with job control (a plain
     -- POSIX sh runs children in its own process group, where the busy
-    -- guard degrades to a no-op) — pin bash rather than inherit $SHELL;
-    -- on Windows keep the resolved Git Bash from minimal_init
-    local bash = vim.fn.has("win32") == 1 and vim.env.SHELL or "bash"
+    -- guard degrades to a no-op) — pin bash rather than inherit $SHELL
+    local bash = "bash"
     if vim.fn.executable(bash) == 0 then
       return
     end

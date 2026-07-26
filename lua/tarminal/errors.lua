@@ -4,13 +4,10 @@ local config = require("tarminal.config")
 local platform = require("tarminal.platform")
 local state = require("tarminal.state")
 local term = require("tarminal.term")
-local util = require("tarminal.util")
 
 local M = {}
 
 local uv = vim.uv or vim.loop
-
-local SEP = util.SEP
 
 ---@return string|nil
 local function resolve_file(path, term_buf)
@@ -18,16 +15,15 @@ local function resolve_file(path, term_buf)
     path = vim.fn.expand(path)
   end
   local candidates
-  local is_abs = path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil or path:match("^\\\\") ~= nil
-  if is_abs then
+  if path:sub(1, 1) == "/" then
     candidates = { path }
   else
     candidates = {}
     local cwd = platform.term_cwd(term_buf)
     if cwd then
-      candidates[#candidates + 1] = cwd .. SEP .. path
+      candidates[#candidates + 1] = cwd .. "/" .. path
     end
-    candidates[#candidates + 1] = vim.fn.getcwd() .. SEP .. path
+    candidates[#candidates + 1] = vim.fn.getcwd() .. "/" .. path
   end
   for _, p in ipairs(candidates) do
     if vim.fn.filereadable(p) == 1 then
@@ -123,7 +119,7 @@ local function parse_error_line(line, term_buf)
 
   local init = 1
   while true do
-    local s, e, f, l, c = line:find("([%a]?:?[^:'\"]+):(%d+):?(%d*)", init)
+    local s, e, f, l, c = line:find("([^:'\"]+):(%d+):?(%d*)", init)
     if not s then
       return
     end

@@ -52,9 +52,8 @@
 ---@field block_open string|nil marker opening a multi-line block (ghci `:{`)
 ---@field block_close string|nil marker closing it (ghci `:}`)
 
--- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback).
--- an optional leading drive letter keeps Windows paths (C:\...) intact.
-local PATH = "([%a]?:?[^%s:%(%)%[%]<>'\"]+)"
+-- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback)
+local PATH = "([^%s:%(%)%[%]<>'\"]+)"
 
 local defaults = {
   split_height = 12,

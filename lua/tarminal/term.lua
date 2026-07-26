@@ -6,8 +6,6 @@ local util = require("tarminal.util")
 
 local M = {}
 
-local SYSNAME = util.SYSNAME
-
 local function terminal_split()
   local pos = config.opts.split_position
   if pos == "auto" then
@@ -64,8 +62,8 @@ local function find_live_terminal(var_name, expected)
   end
 end
 
--- the shell may be a spaced path ("C:/Program Files/Git/bin/bash.exe"), with
--- optional flags after it: keep the longest executable prefix as one argv entry
+-- the shell may be a spaced path, with optional flags after it:
+-- keep the longest executable prefix as one argv entry
 ---@return string[]
 local function shell_cmd(shell)
   local parts = vim.split(shell, "%s+", { trimempty = true })
@@ -96,10 +94,6 @@ local function open_shell_term(name)
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
     local msg = not ok and tostring(job):match("(E%d+:[^\n]*)")
     local fail = "tarminal: could not start shell: " .. config.opts.shell
-    -- runs are POSIX-shell shaped; on Windows point users at a bash-like shell
-    if SYSNAME == "Windows_NT" then
-      fail = fail .. " (set `shell` to a POSIX shell: Git Bash, MSYS2, or WSL)"
-    end
     vim.notify(msg or fail, vim.log.levels.ERROR)
     return nil
   end
@@ -133,13 +127,11 @@ end
 local OSC7_SETUP = {
   bash = [[__tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD"; }; case ";${PROMPT_COMMAND};" in *__tarminal_osc7*) ;; *) PROMPT_COMMAND="__tarminal_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac]],
   zsh = [[autoload -Uz add-zsh-hook 2>/dev/null; __tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOST:-}" "$PWD"; }; add-zsh-hook precmd __tarminal_osc7 2>/dev/null || precmd_functions+=(__tarminal_osc7)]],
-  pwsh = [[try { if (-not (Test-Path function:__tarminal_prompt)) { $function:__tarminal_prompt = $function:prompt; function global:prompt { try { $p = ((Get-Location).ProviderPath -replace '\\','/'); [Console]::Write("$([char]27)]7;file://$([System.Net.Dns]::GetHostName())/$p$([char]27)\") } catch {}; & $function:__tarminal_prompt } } } catch {}]],
 }
-OSC7_SETUP.powershell = OSC7_SETUP.pwsh
 
 local function osc7_snippet(cmd)
   local exe = shell_cmd(cmd)[1] or ""
-  local name = vim.fn.fnamemodify(exe:gsub("\\", "/"), ":t:r"):lower()
+  local name = vim.fn.fnamemodify(exe, ":t"):lower()
   return OSC7_SETUP[name]
 end
 
