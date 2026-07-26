@@ -450,12 +450,14 @@ local function parse_windows_cwd(out)
   return path
 end
 
+-- probe pwsh is spawned by nvim, not the shell, so it never counts itself;
+-- conhost is excluded in case one attaches under the shell
 local function windows_has_child(pid)
   local out = vim.fn.system({
     PWSH,
     "-NoProfile",
     "-Command",
-    "(Get-CimInstance Win32_Process -Filter 'ParentProcessId=" .. pid .. "').Count",
+    "(Get-CimInstance Win32_Process -Filter 'ParentProcessId=" .. pid .. ' AND Name!="conhost.exe"\').Count',
   })
   if vim.v.shell_error ~= 0 then
     return nil
