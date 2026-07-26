@@ -230,8 +230,13 @@ local function term_send_command(buf, cmd)
   term_send(buf, " " .. cmd .. "\n")
 end
 
+-- POSIX quoting regardless of &shell (shellescape emits cmd.exe quoting on Windows)
+local function sh_quote(s)
+  return "'" .. s:gsub("'", [['\'']]) .. "'"
+end
+
 local function term_cd(buf, dir)
-  term_send_command(buf, "cd " .. vim.fn.shellescape(dir))
+  term_send_command(buf, "cd " .. sh_quote(dir))
   vim.b[buf].term_cwd = dir
 end
 
@@ -1041,13 +1046,13 @@ local function execute_in_shell(cmd, dir)
     banner = ("RUN[%d]"):format(M._run_id)
 
     full = table.concat({
-      "cd " .. vim.fn.shellescape(dir),
+      "cd " .. sh_quote(dir),
       "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
       cmd,
     }, " && ")
   else
     start_row = last_content_row(term_buf)
-    full = "cd " .. vim.fn.shellescape(dir) .. " && " .. cmd
+    full = "cd " .. sh_quote(dir) .. " && " .. cmd
   end
 
   if banner or M.config.park_on_error then
@@ -1103,13 +1108,13 @@ local function build_runner_command(ctx)
 
   local suffix = (args and args ~= "") and (" " .. args) or ""
   local time = M.config.time_runs and vim.fn.executable("time") == 1 and "time " or ""
-  local file = vim.fn.shellescape(ctx.file)
+  local file = sh_quote(ctx.file)
   if run_binary then
     local stem = ctx.stem
     if stem == vim.fn.fnamemodify(ctx.file, ":t") then
       stem = stem .. ".out"
     end
-    local out = vim.fn.shellescape(stem)
+    local out = sh_quote(stem)
     return ("%s %s%s -o %s && %s./%s"):format(runner, file, suffix, out, time, out)
   end
   return time .. runner .. " " .. file .. suffix
