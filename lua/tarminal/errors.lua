@@ -18,7 +18,7 @@ local function resolve_file(path, term_buf)
     path = vim.fn.expand(path)
   end
   local candidates
-  local is_abs = path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil
+  local is_abs = path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil or path:match("^\\\\") ~= nil
   if is_abs then
     candidates = { path }
   else
