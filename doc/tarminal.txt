@@ -29,8 +29,12 @@ tarminal.nvim is a terminal runner / REPL integration:
 Platform support: relative paths in error output are resolved against the
 terminal shell's live working directory. On Linux/WSL this reads
 `/proc/<pid>/cwd`; on macOS it shells out to `lsof` (and `pgrep` for run/REPL
-state) — both stock. On BSD this resolution is not implemented yet, so relative
-paths fall back to Neovim's own working directory.
+state) — both stock. FreeBSD uses `procstat`, NetBSD `/proc`; OpenBSD relies
+on OSC 7 shell integration alone. On Windows a POSIX shell (Git Bash or
+MSYS2) is required as `shell`; the cwd is tracked via OSC 7, with a
+PowerShell-based probe as fallback when integration is off. PowerShell is a
+probe tool only, not a supported interactive shell. Where no probe answers,
+relative paths fall back to Neovim's own working directory.
 
 ==============================================================================
 2. Setup                                                      *tarminal-setup*
