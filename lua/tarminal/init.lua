@@ -1,147 +1,28 @@
 --- tarminal.nvim — terminal runner / REPL integration.
 
+local config = require("tarminal.config")
+local state = require("tarminal.state")
+local util = require("tarminal.util")
+
 local M = {}
 
 local uv = vim.uv or vim.loop
 
-local SYSNAME = (uv.os_uname() or {}).sysname or ""
-
----@alias tarminal.Follow
----| '"none"'   # stay in the code window
----| '"focus"'  # terminal window, normal mode
----| '"insert"' # terminal window, terminal-mode
-
----@alias tarminal.SplitPosition
----| '"auto"'   # follow 'splitbelow'
----| '"bottom"' # bottom, always
----| '"top"'    # top, always
-
----@class tarminal.Config
----@field split_height integer
----@field split_position tarminal.SplitPosition
----@field shell string
----@field follow_run tarminal.Follow
----@field follow_repl tarminal.Follow
----@field autosave boolean write the buffer before a run; false uses disk
----@field park_on_error boolean highlight errors and park on the first
----@field cell_marker string line that delimits REPL cells
----@field time_runs boolean `time` the run when a time binary exists
----@field banner boolean print a RUN[n] banner before each run
----@field shell_integration boolean emit + track cwd via OSC 7 in the spawned shell
----@field runners table<string, string|tarminal.Runner> filetype -> run command
----@field compilers string[] program names built with `-o` then run
----@field repls table<string, string|tarminal.Repl> filetype -> REPL command
----@field error_patterns tarminal.ErrorPattern[] error formats, tried in order
----@field error_threshold integer min severity to park/step/collect (0 note, 1 warn, 2 error)
----@field quickfix tarminal.Quickfix
-
----@class tarminal.Quickfix
----@field open boolean open quickfix after collecting
----@field close_terminal boolean close the terminal after collecting
-
----@class tarminal.ErrorPattern
----@field pattern string Lua pattern matched against a whole line
----@field file integer capture index of the file
----@field lnum integer|nil capture index of the line
----@field col integer|nil capture index of the column
----@field type integer|string|nil capture index of a severity word, or a fixed severity
----@field resolve boolean|nil default true: file must exist on disk; false trusts the path
-
----@class tarminal.Runner
----@field cmd string run command
----@field run_binary boolean|nil true: build with `-o` then run the binary
----@field args string|nil flags appended after the file
-
----@class tarminal.Repl
----@field cmd string REPL command
----@field bracketed_paste boolean|nil false to send raw (can't parse paste escapes)
----@field block_open string|nil marker opening a multi-line block (ghci `:{`)
----@field block_close string|nil marker closing it (ghci `:}`)
-
--- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback).
--- an optional leading drive letter keeps Windows paths (C:\...) intact.
-local PATH = "([%a]?:?[^%s:%(%)%[%]<>'\"]+)"
-
-local defaults = {
-  split_height = 12,
-  split_position = "auto",
-  shell = vim.env.SHELL or "/bin/bash",
-  follow_run = "focus",
-  follow_repl = "none",
-  autosave = true,
-  park_on_error = true,
-  cell_marker = "# COMMAND ----------",
-  time_runs = true,
-  banner = true,
-  shell_integration = true,
-  runners = {
-    python = "python",
-    sh = "bash",
-    lua = "lua",
-    javascript = "node",
-    go = "go run",
-    haskell = "runghc",
-    ocaml = "ocaml",
-    c = "cc",
-    rust = "rustc",
-    odin = { cmd = "odin run", args = "-file" },
-  },
-  -- only `cmd <src> -o <out>` compilers; others need a run_binary runner
-  compilers = {
-    "cc",
-    "gcc",
-    "clang",
-    "g++",
-    "clang++",
-    "c++",
-    "rustc",
-    "ghc",
-    "swiftc",
-    "gdc",
-    "ocamlopt",
-    "ocamlc",
-  },
-  repls = {
-    python = "ipython",
-    lua = "lua -i",
-    javascript = "node",
-    ruby = "irb",
-    julia = "julia",
-    r = "R",
-    haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
-    ocaml = { cmd = "ocaml", bracketed_paste = false },
-  },
-  -- tried in order; add your own for tools these miss
-  error_patterns = {
-    { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
-    { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
-    { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
-    { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
-  },
-  error_threshold = 0,
-  quickfix = {
-    open = true,
-    close_terminal = true,
-  },
-}
-
-M.config = vim.deepcopy(defaults)
+local SYSNAME = util.SYSNAME
 
 local function terminal_split()
-  local pos = M.config.split_position
+  local pos = config.opts.split_position
   if pos == "auto" then
     pos = vim.o.splitbelow and "bottom" or "top"
   end
   vim.cmd(pos == "top" and "topleft split" or "botright split")
   local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_height(win, M.config.split_height)
+  vim.api.nvim_win_set_height(win, config.opts.split_height)
   vim.wo.winfixheight = true
   return win
 end
 
-local function get_job_id(buf)
-  return vim.b[buf].terminal_job_id
-end
+local get_job_id = util.get_job_id
 
 local function find_win_for_buf(buf)
   if not buf then
@@ -191,7 +72,7 @@ local function open_shell_term(name)
   local win = terminal_split()
   vim.cmd("enew")
   local buf = vim.api.nvim_get_current_buf()
-  local cmd = vim.split(M.config.shell, "%s+", { trimempty = true })
+  local cmd = vim.split(config.opts.shell, "%s+", { trimempty = true })
   local ok, job
   if vim.fn.has("nvim-0.11") == 1 then
     ok, job = pcall(vim.fn.jobstart, cmd, { term = true })
@@ -202,7 +83,7 @@ local function open_shell_term(name)
     pcall(vim.api.nvim_win_close, win, true)
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
     local msg = not ok and tostring(job):match("(E%d+:[^\n]*)")
-    local fail = "tarminal: could not start shell: " .. M.config.shell
+    local fail = "tarminal: could not start shell: " .. config.opts.shell
     -- runs are POSIX-shell shaped; on Windows point users at a bash-like shell
     if SYSNAME == "Windows_NT" then
       fail = fail .. " (set `shell` to a POSIX shell: Git Bash, MSYS2, or WSL)"
@@ -230,10 +111,7 @@ local function term_send_command(buf, cmd)
   term_send(buf, " " .. cmd .. "\n")
 end
 
--- POSIX quoting regardless of &shell (shellescape emits cmd.exe quoting on Windows)
-local function sh_quote(s)
-  return "'" .. s:gsub("'", [['\'']]) .. "'"
-end
+local sh_quote = util.sh_quote
 
 local function term_cd(buf, dir)
   term_send_command(buf, "cd " .. sh_quote(dir))
@@ -254,10 +132,10 @@ local function osc7_snippet(cmd)
 end
 
 local function enable_shell_integration(buf)
-  if not M.config.shell_integration then
+  if not config.opts.shell_integration then
     return
   end
-  local snippet = osc7_snippet(M.config.shell)
+  local snippet = osc7_snippet(config.opts.shell)
   if snippet then
     term_send_command(buf, snippet)
   end
@@ -266,7 +144,7 @@ end
 ---@param follow tarminal.Follow
 ---@param start_at_top boolean|nil
 local function focus_after_send(term_win, code_win, follow, start_at_top)
-  M._last_code_win = code_win
+  state._last_code_win = code_win
   vim.api.nvim_win_call(term_win, function()
     vim.cmd(start_at_top and "normal! Gzt" or "normal! G")
   end)
@@ -465,9 +343,7 @@ local function windows_has_child(pid)
   return (tonumber(vim.trim(out)) or 0) > 0
 end
 
-local IS_BSD = SYSNAME == "FreeBSD" or SYSNAME == "OpenBSD" or SYSNAME == "NetBSD"
-local IS_WINDOWS = SYSNAME == "Windows_NT"
-local SEP = IS_WINDOWS and "\\" or "/"
+local IS_BSD, IS_WINDOWS, SEP = util.IS_BSD, util.IS_WINDOWS, util.SEP
 
 ---@return string|nil
 local function osc7_cwd(seq)
@@ -683,7 +559,7 @@ end
 ---        integer|nil span_s, integer|nil span_e, integer|nil sev
 local function match_patterns(line, term_buf)
   local best
-  for _, pat in ipairs(M.config.error_patterns) do
+  for _, pat in ipairs(config.opts.error_patterns) do
     local init = 1
     while true do
       -- caps[1..2] = match bounds; capture N = caps[2+N]
@@ -762,8 +638,8 @@ end
 ---@return integer|nil win
 local function pick_code_win()
   local wins = {}
-  if M._last_code_win then
-    wins[#wins + 1] = M._last_code_win
+  if state._last_code_win then
+    wins[#wins + 1] = state._last_code_win
   end
   wins[#wins + 1] = vim.fn.win_getid(vim.fn.winnr("#"))
   vim.list_extend(wins, vim.api.nvim_tabpage_list_wins(0))
@@ -876,10 +752,10 @@ end
 ---@param start_row integer|nil row output starts after, when bannerless
 ---@param scan_errors boolean
 local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
-  if M._watch_timer then
-    M._watch_timer:stop()
-    M._watch_timer:close()
-    M._watch_timer = nil
+  if state._watch_timer then
+    state._watch_timer:stop()
+    state._watch_timer:close()
+    state._watch_timer = nil
   end
 
   local elapsed = 0
@@ -889,13 +765,13 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
   local seen = false
   local last_tick = vim.api.nvim_buf_get_changedtick(term_buf)
   local timer = uv.new_timer()
-  M._watch_timer = timer
+  state._watch_timer = timer
 
   local function stop()
     timer:stop()
     timer:close()
-    if M._watch_timer == timer then
-      M._watch_timer = nil
+    if state._watch_timer == timer then
+      state._watch_timer = nil
     end
   end
 
@@ -979,7 +855,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
         local file, _, _, span_s, span_e, sev = parse_error_line(logical, term_buf)
         if file then
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
-          if not parked and sev >= M.config.error_threshold then
+          if not parked and sev >= config.opts.error_threshold then
             parked = true
             if win and not typing then
               vim.api.nvim_win_set_cursor(win, { math.max(first, banner_row + 1), 0 })
@@ -1007,7 +883,7 @@ local function goto_error(dir)
   while i >= 1 and i <= #lines do
     local logical, first, last = logical_line_at(lines, i, width)
     local file, _, _, _, _, sev = parse_error_line(logical, term_buf)
-    if file and sev >= M.config.error_threshold then
+    if file and sev >= config.opts.error_threshold then
       vim.api.nvim_win_set_cursor(0, { first, 0 })
       return
     end
@@ -1048,7 +924,7 @@ function M.errors_to_quickfix()
   while i <= #lines do
     local logical, _, last = logical_line_at(lines, i, width)
     local file, lnum, col, _, _, sev = parse_error_line(logical, term_buf)
-    if file and sev >= M.config.error_threshold then
+    if file and sev >= config.opts.error_threshold then
       items[#items + 1] = {
         filename = file,
         lnum = lnum or 1,
@@ -1066,7 +942,7 @@ function M.errors_to_quickfix()
   end
 
   vim.fn.setqflist({}, " ", { title = "tarminal errors", items = items })
-  local qf = M.config.quickfix
+  local qf = config.opts.quickfix
   if qf.close_terminal then
     local win = find_win_for_buf(term_buf)
     if win and not pcall(vim.api.nvim_win_close, win, false) then
@@ -1130,15 +1006,15 @@ local function execute_in_shell(cmd, dir)
 
   vim.api.nvim_buf_clear_namespace(term_buf, ns, 0, -1)
 
-  M._run_id = (M._run_id or 0) + 1
+  state._run_id = (state._run_id or 0) + 1
 
   local banner, start_row, full
-  if M.config.banner then
-    banner = ("RUN[%d]"):format(M._run_id)
+  if config.opts.banner then
+    banner = ("RUN[%d]"):format(state._run_id)
 
     full = table.concat({
       "cd " .. sh_quote(dir),
-      "printf '\\n===== RUN[%d]: %s =====\\n' " .. M._run_id .. " \"$(date '+%H:%M:%S')\"",
+      "printf '\\n===== RUN[%d]: %s =====\\n' " .. state._run_id .. " \"$(date '+%H:%M:%S')\"",
       cmd,
     }, " && ")
   else
@@ -1146,8 +1022,8 @@ local function execute_in_shell(cmd, dir)
     full = "cd " .. sh_quote(dir) .. " && " .. cmd
   end
 
-  if banner or M.config.park_on_error then
-    watch_run_output(term_buf, banner, start_row, M.config.park_on_error)
+  if banner or config.opts.park_on_error then
+    watch_run_output(term_buf, banner, start_row, config.opts.park_on_error)
   end
   term_send_command(term_buf, full)
   vim.b[term_buf].term_cwd = dir
@@ -1155,7 +1031,7 @@ local function execute_in_shell(cmd, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
-  focus_after_send(term_win, code_win, M.config.follow_run, banner ~= nil)
+  focus_after_send(term_win, code_win, config.opts.follow_run, banner ~= nil)
 end
 
 ---@class tarminal.RunContext
@@ -1168,7 +1044,7 @@ local function is_compiler(runner)
   local exe = runner:match("%S+") or runner
   exe = exe:match("[^/]+$") or exe
   local unversioned = exe:match("^(.-)%-%d+$")
-  for _, name in ipairs(M.config.compilers) do
+  for _, name in ipairs(config.opts.compilers) do
     if exe == name or unversioned == name then
       return true
     end
@@ -1178,7 +1054,7 @@ end
 
 ---@return string|nil cmd, boolean run_binary, string|nil args
 local function runner_spec(ft)
-  local spec = M.config.runners[ft]
+  local spec = config.opts.runners[ft]
   local cmd, run_binary, args = spec, nil, nil
   if type(spec) == "table" then
     cmd, run_binary, args = spec.cmd, spec.run_binary, spec.args
@@ -1198,7 +1074,7 @@ local function build_runner_command(ctx)
   end
 
   local suffix = (args and args ~= "") and (" " .. args) or ""
-  local time = M.config.time_runs and vim.fn.executable("time") == 1 and "time " or ""
+  local time = config.opts.time_runs and vim.fn.executable("time") == 1 and "time " or ""
   local file = sh_quote(ctx.file)
   if run_binary then
     local stem = ctx.stem
@@ -1213,7 +1089,7 @@ end
 
 ---@return boolean ok
 local function update_buffer(buf)
-  if not M.config.autosave then
+  if not config.opts.autosave then
     return true
   end
   local ok, err = pcall(vim.api.nvim_buf_call, buf, function()
@@ -1241,7 +1117,7 @@ function M.run()
       ft = vim.bo.filetype,
     }
   else
-    ctx = M._last_run
+    ctx = state._last_run
     if not ctx then
       vim.notify("Nothing to run from here", vim.log.levels.WARN)
       return
@@ -1261,7 +1137,7 @@ function M.run()
   end
 
   if from_file then
-    M._last_run = ctx
+    state._last_run = ctx
   end
   execute_in_shell(runner_cmd, ctx.dir)
 end
@@ -1277,7 +1153,7 @@ function M.exec(arg, verbatim)
   end
 
   if not input or input == "" then
-    vim.ui.input({ prompt = "exec: ", default = M._last_exec_cmd, completion = "shellcmd" }, function(text)
+    vim.ui.input({ prompt = "exec: ", default = state._last_exec_cmd, completion = "shellcmd" }, function(text)
       if text and text ~= "" then
         M.exec(text, true)
       end
@@ -1300,9 +1176,9 @@ function M.exec(arg, verbatim)
     cmd = expanded
   end
 
-  M._last_exec_cmd = cmd
-  M._last_exec_dir = vim.fn.getcwd()
-  execute_in_shell(cmd, M._last_exec_dir)
+  state._last_exec_cmd = cmd
+  state._last_exec_dir = vim.fn.getcwd()
+  execute_in_shell(cmd, state._last_exec_dir)
 end
 
 ---@return integer
@@ -1377,7 +1253,7 @@ end
 
 ---@return string|nil cmd, boolean bracketed_paste, string|nil block_open, string|nil block_close
 local function repl_spec(ft)
-  local spec = M.config.repls[ft]
+  local spec = config.opts.repls[ft]
   if type(spec) == "table" then
     return spec.cmd, spec.bracketed_paste ~= false, spec.block_open, spec.block_close
   end
@@ -1454,11 +1330,11 @@ function M.send_selection(command_opts)
   end
 
   send_to_repl(repl_buf, text)
-  focus_after_send(repl_win, code_win, M.config.follow_repl)
+  focus_after_send(repl_win, code_win, config.opts.follow_repl)
 end
 
 local function line_is_marker(s)
-  return M.config.cell_marker ~= "" and vim.trim(s) == M.config.cell_marker
+  return config.opts.cell_marker ~= "" and vim.trim(s) == config.opts.cell_marker
 end
 
 local function get_current_cell_range()
@@ -1503,7 +1379,7 @@ function M.send_cell()
   end
 
   send_to_repl(repl_buf, text)
-  focus_after_send(repl_win, code_win, M.config.follow_repl)
+  focus_after_send(repl_win, code_win, config.opts.follow_repl)
 end
 
 local function define_error_highlight()
@@ -1515,16 +1391,7 @@ end
 
 ---@param opts tarminal.Config|nil merged over the defaults
 function M.setup(opts)
-  opts = opts or {}
-  local extra = opts.error_patterns
-  if extra then
-    opts = vim.tbl_extend("force", {}, opts) -- shallow copy; don't mutate caller
-    opts.error_patterns = nil
-  end
-  M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
-  if extra then
-    M.config.error_patterns = vim.list_extend(vim.deepcopy(extra), M.config.error_patterns)
-  end
+  config.setup(opts)
   local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
   define_error_highlight()
@@ -1556,5 +1423,15 @@ function M.setup(opts)
     end,
   })
 end
+
+-- compat: keep config and the historical M._* fields readable on the facade
+setmetatable(M, {
+  __index = function(_, k)
+    if k == "config" then
+      return config.opts
+    end
+    return state[k]
+  end,
+})
 
 return M
