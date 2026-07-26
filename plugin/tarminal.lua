@@ -20,6 +20,22 @@ local subcommands = {
   "errors_to_quickfix",
 }
 
+-- Complete `:Tarminal exec <cmd> <args...>`.
+-- `head` is the exec arguments typed before the word being completed.
+local function complete_exec(arglead, head)
+  -- Past the command word: complete files *and* directories.
+  if head:match("%S") then
+    return vim.fn.getcompletion(arglead, "file")
+  end
+  -- Command word. Empty arg would scan the whole PATH (thousands of
+  -- entries, slow on WSL) — list the cwd instead. Path-like commands
+  -- (./script, ~/bin/x) go through file completion so non-executables show.
+  if arglead == "" or arglead:match("[/~.]") then
+    return vim.fn.getcompletion(arglead, "file")
+  end
+  return vim.fn.getcompletion(arglead, "shellcmd")
+end
+
 vim.api.nvim_create_user_command("Tarminal", function(cmd)
   local sub = cmd.fargs[1] or "toggle"
   if not vim.tbl_contains(subcommands, sub) then
@@ -30,13 +46,22 @@ vim.api.nvim_create_user_command("Tarminal", function(cmd)
 end, {
   nargs = "*",
   range = true,
-  complete = function(arglead, cmdline)
-    if cmdline:match("Tarminal!?%s+%S+%s") then
+  complete = function(arglead, cmdline, cursorpos)
+    local before = cmdline:sub(1, cursorpos or #cmdline)
+    local rest = before:match("^%s*Tarminal!?%s+(.*)$")
+    if not rest then
       return {}
     end
-    return vim.tbl_filter(function(s)
-      return vim.startswith(s, arglead)
-    end, subcommands)
+    local sub, after = rest:match("^(%S+)%s+(.*)$")
+    if not sub then
+      return vim.tbl_filter(function(s)
+        return vim.startswith(s, arglead)
+      end, subcommands)
+    end
+    if sub == "exec" then
+      return complete_exec(arglead, after:sub(1, #after - #arglead))
+    end
+    return {}
   end,
   desc = "Open Tarminal (default: toggle) — :Tarminal <Tab> for all actions",
 })
