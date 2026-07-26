@@ -64,13 +64,27 @@ local function find_live_terminal(var_name, expected)
   end
 end
 
+-- the shell may be a spaced path ("C:/Program Files/Git/bin/bash.exe"), with
+-- optional flags after it: keep the longest executable prefix as one argv entry
+---@return string[]
+local function shell_cmd(shell)
+  local parts = vim.split(shell, "%s+", { trimempty = true })
+  for i = #parts, 2, -1 do
+    local exe = table.concat(parts, " ", 1, i)
+    if vim.fn.executable(exe) == 1 then
+      return vim.list_extend({ exe }, parts, i + 1)
+    end
+  end
+  return parts
+end
+
 ---@param name string buffer name, e.g. "tarminal://shell"
 ---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
   local win = terminal_split()
   vim.cmd("enew")
   local buf = vim.api.nvim_get_current_buf()
-  local cmd = vim.split(config.opts.shell, "%s+", { trimempty = true })
+  local cmd = shell_cmd(config.opts.shell)
   local ok, job
   if vim.fn.has("nvim-0.11") == 1 then
     ok, job = pcall(vim.fn.jobstart, cmd, { term = true })
@@ -124,7 +138,7 @@ local OSC7_SETUP = {
 OSC7_SETUP.powershell = OSC7_SETUP.pwsh
 
 local function osc7_snippet(cmd)
-  local exe = vim.split(cmd, "%s+", { trimempty = true })[1] or ""
+  local exe = shell_cmd(cmd)[1] or ""
   local name = vim.fn.fnamemodify(exe:gsub("\\", "/"), ":t:r"):lower()
   return OSC7_SETUP[name]
 end
@@ -156,6 +170,7 @@ local function focus_after_send(term_win, code_win, follow, start_at_top)
   end
 end
 
+M.shell_cmd = shell_cmd
 M.find_win_for_buf = find_win_for_buf
 M.ensure_window_for_buf = ensure_window_for_buf
 M.find_live_terminal = find_live_terminal

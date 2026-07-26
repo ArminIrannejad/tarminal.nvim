@@ -178,6 +178,21 @@ describe("tarminal", function()
     assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
+  it("keeps a spaced shell path as one argv entry", function()
+    assert.same({ "bash", "-l" }, term.shell_cmd("bash -l"))
+
+    if vim.fn.has("win32") == 0 then
+      local dir = vim.fn.tempname() .. " with space"
+      vim.fn.mkdir(dir, "p")
+      local exe = dir .. "/fakesh"
+      vim.fn.writefile({ "#!/bin/sh" }, exe)
+      vim.fn.setfperm(exe, "rwxr-xr-x")
+      assert.same({ exe }, term.shell_cmd(exe))
+      assert.same({ exe, "-l" }, term.shell_cmd(exe .. " -l"))
+      vim.fn.delete(dir, "rf")
+    end
+  end)
+
   it("runs a named file with its configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
