@@ -134,6 +134,7 @@ end
 local OSC7_SETUP = {
   bash = [[__tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD"; }; case ";${PROMPT_COMMAND};" in *__tarminal_osc7*) ;; *) PROMPT_COMMAND="__tarminal_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac]],
   zsh = [[autoload -Uz add-zsh-hook 2>/dev/null; __tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOST:-}" "$PWD"; }; add-zsh-hook precmd __tarminal_osc7 2>/dev/null || precmd_functions+=(__tarminal_osc7)]],
+  fish = [[function __tarminal_osc7 --on-variable PWD; printf '\033]7;file://%s%s\033\\' "$hostname" "$PWD"; end; __tarminal_osc7]],
 }
 
 local function osc7_snippet(cmd)
@@ -149,6 +150,8 @@ local function enable_shell_integration(buf)
   local snippet = osc7_snippet(config.opts.shell)
   if snippet then
     term_send_command(buf, snippet)
+    -- hide the setup command + its output so the shell starts clean
+    clear_terminal(buf)
   end
 end
 
