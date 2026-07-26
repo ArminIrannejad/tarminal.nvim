@@ -886,8 +886,10 @@ describe("tarminal", function()
   it("refuses to run while the terminal is busy with a command", function()
     -- foreground-job detection needs a shell with job control (a plain
     -- POSIX sh runs children in its own process group, where the busy
-    -- guard degrades to a no-op) — pin bash rather than inherit $SHELL
-    if vim.fn.executable("bash") == 0 then
+    -- guard degrades to a no-op) — pin bash rather than inherit $SHELL;
+    -- on Windows keep the resolved Git Bash from minimal_init
+    local bash = vim.fn.has("win32") == 1 and vim.env.SHELL or "bash"
+    if vim.fn.executable(bash) == 0 then
       return
     end
     local file = vim.fn.tempname() .. ".lua"
@@ -902,7 +904,7 @@ describe("tarminal", function()
     tarminal.setup({
       park_on_error = false,
       follow_run = "none",
-      shell = "bash",
+      shell = bash,
       runners = { lua = "sh " .. script },
     })
 
