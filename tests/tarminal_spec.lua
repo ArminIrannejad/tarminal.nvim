@@ -1,5 +1,7 @@
 describe("tarminal", function()
   local tarminal
+  local platform = require("tarminal.platform")
+  local term = require("tarminal.term")
 
   -- Search `fn`'s upvalues for `wanted`, descending into function-valued
   -- upvalues (locals extracted into helpers, like execute_in_shell, put
@@ -44,7 +46,7 @@ describe("tarminal", function()
   -- when two runs are issued back-to-back).
   local function wait_run_finished(term_buf, id)
     local token = ("RUN[%d]"):format(id)
-    local term_busy = get_upvalue(tarminal.run, "term_busy")
+    local term_busy = platform.term_busy
     return vim.wait(8000, function()
       local seen = false
       for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
@@ -333,7 +335,7 @@ describe("tarminal", function()
   end)
 
   it("extracts the cwd path from macOS lsof -Fn output", function()
-    local parse_lsof_cwd = get_upvalue(tarminal.jump_to_error, "parse_lsof_cwd")
+    local parse_lsof_cwd = platform.parse_lsof_cwd
     -- lsof -a -p <pid> -d cwd -Fn emits the pid, the fd, then the n<path> line
     assert.equals("/Users/armin/project", parse_lsof_cwd("p12345\nfcwd\nn/Users/armin/project\n"))
     -- a path containing spaces must survive intact
@@ -698,7 +700,7 @@ describe("tarminal", function()
 
     assert.is_true(ok)
     assert.equals(before, #vim.api.nvim_list_wins())
-    assert.is_nil(get_upvalue(tarminal.toggle, "find_live_terminal")("is_shell", true))
+    assert.is_nil(term.find_live_terminal("is_shell", true))
     assert.is_true(#notes >= 1)
     assert.equals(vim.log.levels.ERROR, notes[#notes].level)
   end)
@@ -918,7 +920,7 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_buf)
-    local term_busy = get_upvalue(tarminal.run, "term_busy")
+    local term_busy = platform.term_busy
     local busy = vim.wait(8000, function()
       return term_busy(term_buf) == true
     end, 50)
@@ -1250,7 +1252,7 @@ describe("tarminal", function()
     -- The first run remains in the buffer while the window is scrolled to
     -- the second banner; no terminal output is needed to pad the viewport.
     assert.is_not_nil(banner_row(first))
-    local find_win_for_buf = get_upvalue(tarminal.run, "find_win_for_buf")
+    local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
     assert.is_true(vim.wait(4000, function()
       return vim.api.nvim_win_call(term_win, function()
@@ -1290,7 +1292,7 @@ describe("tarminal", function()
       end
     end
 
-    local find_win_for_buf = get_upvalue(tarminal.run, "find_win_for_buf")
+    local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
     assert.is_true(vim.wait(4000, function()
       return vim.api.nvim_win_call(term_win, function()

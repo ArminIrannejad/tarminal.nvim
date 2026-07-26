@@ -1,498 +1,17 @@
 --- tarminal.nvim — terminal runner / REPL integration.
 
 local config = require("tarminal.config")
+local platform = require("tarminal.platform")
 local state = require("tarminal.state")
+local term = require("tarminal.term")
 local util = require("tarminal.util")
 
 local M = {}
 
 local uv = vim.uv or vim.loop
 
-local SYSNAME = util.SYSNAME
-
-local function terminal_split()
-  local pos = config.opts.split_position
-  if pos == "auto" then
-    pos = vim.o.splitbelow and "bottom" or "top"
-  end
-  vim.cmd(pos == "top" and "topleft split" or "botright split")
-  local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_height(win, config.opts.split_height)
-  vim.wo.winfixheight = true
-  return win
-end
-
-local get_job_id = util.get_job_id
-
-local function find_win_for_buf(buf)
-  if not buf then
-    return nil
-  end
-  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    if vim.api.nvim_win_get_buf(w) == buf then
-      return w
-    end
-  end
-end
-
-local function ensure_window_for_buf(buf)
-  local win = find_win_for_buf(buf)
-  if win then
-    return win
-  end
-  win = terminal_split()
-  vim.api.nvim_win_set_buf(win, buf)
-  return win
-end
-
-local function is_terminal_alive(buf)
-  local job = get_job_id(buf)
-  if not job then
-    return false
-  end
-  return vim.fn.jobwait({ job }, 0)[1] == -1
-end
-
----@return integer|nil buf
-local function find_live_terminal(var_name, expected)
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.bo[buf].buftype == "terminal" and vim.b[buf][var_name] == expected then
-      if is_terminal_alive(buf) then
-        return buf
-      end
-      vim.api.nvim_buf_delete(buf, { force = true })
-      return nil
-    end
-  end
-end
-
----@param name string buffer name, e.g. "tarminal://shell"
----@return integer|nil buf, integer|nil win
-local function open_shell_term(name)
-  local win = terminal_split()
-  vim.cmd("enew")
-  local buf = vim.api.nvim_get_current_buf()
-  local cmd = vim.split(config.opts.shell, "%s+", { trimempty = true })
-  local ok, job
-  if vim.fn.has("nvim-0.11") == 1 then
-    ok, job = pcall(vim.fn.jobstart, cmd, { term = true })
-  else
-    ok, job = pcall(vim.fn.termopen, cmd)
-  end
-  if not ok or type(job) ~= "number" or job <= 0 then
-    pcall(vim.api.nvim_win_close, win, true)
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    local msg = not ok and tostring(job):match("(E%d+:[^\n]*)")
-    local fail = "tarminal: could not start shell: " .. config.opts.shell
-    -- runs are POSIX-shell shaped; on Windows point users at a bash-like shell
-    if SYSNAME == "Windows_NT" then
-      fail = fail .. " (set `shell` to a POSIX shell: Git Bash, MSYS2, or WSL)"
-    end
-    vim.notify(msg or fail, vim.log.levels.ERROR)
-    return nil
-  end
-  vim.b[buf].term_cwd = vim.fn.getcwd()
-
-  vim.opt_local.number = false
-  vim.opt_local.relativenumber = false
-  vim.opt_local.scrolloff = 0
-  vim.bo[buf].filetype = "tarminal"
-  pcall(vim.api.nvim_buf_set_name, buf, name)
-
-  return buf, win
-end
-
-local function term_send(buf, text)
-  vim.fn.chansend(get_job_id(buf), text)
-end
-
--- leading space keeps it out of shell history (ignorespace)
-local function term_send_command(buf, cmd)
-  term_send(buf, " " .. cmd .. "\n")
-end
-
+local SEP = util.SEP
 local sh_quote = util.sh_quote
-
-local function term_cd(buf, dir)
-  term_send_command(buf, "cd " .. sh_quote(dir))
-  vim.b[buf].term_cwd = dir
-end
-
-local OSC7_SETUP = {
-  bash = [[__tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD"; }; case ";${PROMPT_COMMAND};" in *__tarminal_osc7*) ;; *) PROMPT_COMMAND="__tarminal_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac]],
-  zsh = [[autoload -Uz add-zsh-hook 2>/dev/null; __tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOST:-}" "$PWD"; }; add-zsh-hook precmd __tarminal_osc7 2>/dev/null || precmd_functions+=(__tarminal_osc7)]],
-  pwsh = [[try { if (-not (Test-Path function:__tarminal_prompt)) { $function:__tarminal_prompt = $function:prompt; function global:prompt { try { $p = ((Get-Location).ProviderPath -replace '\\','/'); [Console]::Write("$([char]27)]7;file://$([System.Net.Dns]::GetHostName())/$p$([char]27)\") } catch {}; & $function:__tarminal_prompt } } } catch {}]],
-}
-OSC7_SETUP.powershell = OSC7_SETUP.pwsh
-
-local function osc7_snippet(cmd)
-  local exe = vim.split(cmd, "%s+", { trimempty = true })[1] or ""
-  local name = vim.fn.fnamemodify(exe:gsub("\\", "/"), ":t:r"):lower()
-  return OSC7_SETUP[name]
-end
-
-local function enable_shell_integration(buf)
-  if not config.opts.shell_integration then
-    return
-  end
-  local snippet = osc7_snippet(config.opts.shell)
-  if snippet then
-    term_send_command(buf, snippet)
-  end
-end
-
----@param follow tarminal.Follow
----@param start_at_top boolean|nil
-local function focus_after_send(term_win, code_win, follow, start_at_top)
-  state._last_code_win = code_win
-  vim.api.nvim_win_call(term_win, function()
-    vim.cmd(start_at_top and "normal! Gzt" or "normal! G")
-  end)
-  if follow == "insert" then
-    vim.api.nvim_set_current_win(term_win)
-    vim.cmd("startinsert")
-  elseif follow == "focus" then
-    vim.api.nvim_set_current_win(term_win)
-  elseif vim.api.nvim_get_current_win() ~= code_win and vim.api.nvim_win_is_valid(code_win) then
-    vim.api.nvim_set_current_win(code_win)
-  end
-end
-
----@return integer|nil
-local function term_pid(buf)
-  local job = get_job_id(buf)
-  if not job then
-    return nil
-  end
-  local ok, pid = pcall(vim.fn.jobpid, job)
-  if ok and pid and pid > 0 then
-    return pid
-  end
-  return nil
-end
-
-local function linux_cwd(pid)
-  return uv.fs_readlink("/proc/" .. pid .. "/cwd")
-end
-
-local function linux_busy(pid)
-  local f = io.open("/proc/" .. pid .. "/stat", "r")
-  if not f then
-    return nil
-  end
-  local stat = f:read("*a") or ""
-  f:close()
-  local rest = stat:match(".*%)%s+(.*)")
-  if not rest then
-    return nil
-  end
-  local fields = vim.split(rest, "%s+", { trimempty = true })
-  local pgrp, tpgid = tonumber(fields[3]), tonumber(fields[6])
-  if not pgrp or not tpgid or tpgid <= 0 then
-    return nil
-  end
-  if tpgid == pgrp then
-    return false
-  end
-  return uv.kill(-tpgid, 0) == 0
-end
-
-local function linux_has_child(pid)
-  local f = io.open("/proc/" .. pid .. "/task/" .. pid .. "/children", "r")
-  if not f then
-    return nil
-  end
-  local kids = f:read("*a") or ""
-  f:close()
-  return vim.trim(kids) ~= ""
-end
-
-local function pgrep_has_child(pid)
-  local out = vim.fn.system({ "pgrep", "-P", tostring(pid) })
-  return vim.v.shell_error == 0 and vim.trim(out) ~= ""
-end
-
-local function ps_busy(pid)
-  local out = vim.fn.system({ "ps", "-o", "pgid=", "-o", "tpgid=", "-p", tostring(pid) })
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
-  local pgid, tpgid = out:match("(%d+)%s+(%-?%d+)")
-  pgid, tpgid = tonumber(pgid), tonumber(tpgid)
-  if not pgid or not tpgid or tpgid <= 0 then
-    return nil
-  end
-  if tpgid == pgid then
-    return false
-  end
-  return uv.kill(-tpgid, 0) == 0
-end
-
-local LSOF = vim.fn.exepath("lsof")
-if LSOF == "" then
-  LSOF = "/usr/sbin/lsof"
-end
-
-local function parse_lsof_cwd(out)
-  return out:match("\nn([^\n]+)") or out:match("^n([^\n]+)")
-end
-
-local function darwin_cwd(pid)
-  local out = vim.fn.system({ LSOF, "-a", "-p", tostring(pid), "-d", "cwd", "-Fn" })
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
-  return parse_lsof_cwd(out)
-end
-
-local function parse_procstat_cwd(out)
-  for line in out:gmatch("[^\n]+") do
-    if line:match("^%s*%d+%s+%S+%s+cwd%s") then
-      local p = line:match("(/.*)$")
-      if p then
-        return vim.trim(p)
-      end
-    end
-  end
-  return nil
-end
-
-local function bsd_cwd(pid)
-  if SYSNAME == "NetBSD" then
-    return uv.fs_readlink("/proc/" .. pid .. "/cwd")
-  end
-  if SYSNAME ~= "FreeBSD" then
-    return nil
-  end
-  local out = vim.fn.system({ "procstat", "-f", tostring(pid) })
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
-  return parse_procstat_cwd(out)
-end
-
-local PWSH = vim.fn.exepath("pwsh")
-if PWSH == "" then
-  PWSH = "powershell"
-end
-
--- reads the shell's real cwd from its PEB (x64 offsets; 32-bit or elevated targets yield nil)
-local WIN_CWD_PS = [==[
-$ErrorActionPreference='SilentlyContinue'
-Add-Type -TypeDefinition @"
-using System; using System.Runtime.InteropServices;
-public static class TarminalCwd {
-  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr h, int c, byte[] i, int l, out int r);
-  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool b, int p);
-  [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr h, IntPtr a, byte[] b, IntPtr n, out IntPtr r);
-  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
-  static long ReadPtr(IntPtr h, long a) {
-    byte[] b = new byte[8]; IntPtr r;
-    return ReadProcessMemory(h, (IntPtr)a, b, (IntPtr)8, out r) ? BitConverter.ToInt64(b, 0) : 0;
-  }
-  public static string Get(int pid) {
-    IntPtr h = OpenProcess(0x0410, false, pid);
-    if (h == IntPtr.Zero) return null;
-    try {
-      byte[] pbi = new byte[48]; int ret;
-      if (NtQueryInformationProcess(h, 0, pbi, 48, out ret) != 0) return null;
-      long prm = ReadPtr(h, BitConverter.ToInt64(pbi, 8) + 0x20);
-      if (prm == 0) return null;
-      byte[] us = new byte[16]; IntPtr r;
-      if (!ReadProcessMemory(h, (IntPtr)(prm + 0x38), us, (IntPtr)16, out r)) return null;
-      ushort len = BitConverter.ToUInt16(us, 0);
-      long buf = BitConverter.ToInt64(us, 8);
-      if (len == 0 || len > 65534 || buf == 0) return null;
-      byte[] pb = new byte[len];
-      if (!ReadProcessMemory(h, (IntPtr)buf, pb, (IntPtr)len, out r)) return null;
-      return System.Text.Encoding.Unicode.GetString(pb);
-    } finally { CloseHandle(h); }
-  }
-}
-"@
-[TarminalCwd]::Get(%d)
-]==]
-
-local function windows_cwd_cmd(pid)
-  return { PWSH, "-NoProfile", "-NonInteractive", "-Command", WIN_CWD_PS:format(pid) }
-end
-
-local function parse_windows_cwd(out)
-  local path = vim.trim(out or "")
-  if not (path:match("^%a:[/\\]") or path:match("^\\\\")) then
-    return nil
-  end
-  if not path:match("^%a:[/\\]$") then
-    path = path:gsub("[/\\]+$", "")
-  end
-  return path
-end
-
--- probe pwsh is spawned by nvim, not the shell, so it never counts itself;
--- conhost is excluded in case one attaches under the shell
-local function windows_has_child(pid)
-  local out = vim.fn.system({
-    PWSH,
-    "-NoProfile",
-    "-Command",
-    "(Get-CimInstance Win32_Process -Filter 'ParentProcessId=" .. pid .. ' AND Name!="conhost.exe"\').Count',
-  })
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
-  return (tonumber(vim.trim(out)) or 0) > 0
-end
-
-local IS_BSD, IS_WINDOWS, SEP = util.IS_BSD, util.IS_WINDOWS, util.SEP
-
----@return string|nil
-local function osc7_cwd(seq)
-  local path = seq:match("]7;file://[^/]*(/[^\007\027]*)")
-  if not path then
-    return nil
-  end
-  path = path:gsub("%%(%x%x)", function(h)
-    return string.char(tonumber(h, 16))
-  end)
-  if IS_WINDOWS then
-    -- pwsh emits /C:/x; Git Bash/MSYS emit /c/x; Cygwin emits /cygdrive/c/x
-    local drive = path:match("^/(%a:.*)$")
-    if drive then
-      return drive
-    end
-    local letter, rest = path:match("^/cygdrive/(%a)(/?.*)$")
-    if not letter then
-      letter, rest = path:match("^/(%a)(/.*)$")
-    end
-    if not letter then
-      letter, rest = path:match("^/(%a)$"), "/"
-    end
-    if letter then
-      return letter:upper() .. ":" .. (rest ~= "" and rest or "/")
-    end
-  end
-  return path
-end
-
-local SHELL_TTL = 1000
-local shell_cache = {}
-
-local function memo(buf, kind, provider, pid)
-  local slot = shell_cache[buf] or {}
-  shell_cache[buf] = slot
-  local c = slot[kind]
-  local now = uv.now()
-  if c and now - c.t < SHELL_TTL then
-    return c.v
-  end
-  local v = provider(pid)
-  slot[kind] = { t = now, v = v }
-  return v
-end
-
-local function prep_run_cache(buf, dir)
-  local slot = shell_cache[buf] or {}
-  shell_cache[buf] = slot
-  slot.cwd = { t = uv.now(), v = dir }
-  slot.busy = nil
-end
-
--- probe is slow (pwsh startup + Add-Type), so: skipped while OSC 7 reports,
--- refreshed async with a longer TTL, and never blocks — callers get the
--- cached value (or nil, falling back to b:term_cwd) while a probe is in flight
-local WIN_CWD_TTL = 5000
-
-local function windows_cwd(buf, pid)
-  if vim.b[buf].osc7_active or not vim.system then
-    return nil
-  end
-  local slot = shell_cache[buf] or {}
-  shell_cache[buf] = slot
-  local c = slot.cwd
-  if (c and uv.now() - c.t < WIN_CWD_TTL) or slot.cwd_probe then
-    return c and c.v
-  end
-  slot.cwd_probe = true
-  vim.system(windows_cwd_cmd(pid), { text = true, timeout = 8000 }, function(res)
-    vim.schedule(function()
-      slot.cwd_probe = nil
-      if shell_cache[buf] == slot then
-        slot.cwd = { t = uv.now(), v = parse_windows_cwd(res.stdout) }
-      end
-    end)
-  end)
-  return c and c.v
-end
-
----@return string|nil
-local function term_cwd(buf)
-  local pid = term_pid(buf)
-  if pid then
-    local cwd
-    if SYSNAME == "Linux" then
-      cwd = linux_cwd(pid)
-    elseif SYSNAME == "Darwin" then
-      cwd = memo(buf, "cwd", darwin_cwd, pid)
-    elseif IS_BSD then
-      cwd = memo(buf, "cwd", bsd_cwd, pid)
-    elseif IS_WINDOWS then
-      cwd = windows_cwd(buf, pid)
-    end
-    if cwd then
-      return cwd
-    end
-  end
-  return vim.b[buf].term_cwd
-end
-
----@return boolean|nil busy nil when undeterminable
-local function term_busy(buf, fresh)
-  local pid = term_pid(buf)
-  if not pid then
-    return nil
-  end
-  if SYSNAME == "Linux" then
-    return linux_busy(pid)
-  elseif SYSNAME == "Darwin" or IS_BSD then
-    if fresh then
-      return ps_busy(pid)
-    end
-    return memo(buf, "busy", ps_busy, pid)
-  elseif IS_WINDOWS then
-    if fresh then
-      return windows_has_child(pid)
-    end
-    return memo(buf, "busy", windows_has_child, pid)
-  end
-  return nil
-end
-
--- shell has a live child (the REPL)?
----@return boolean|nil
-local function shell_has_child(buf)
-  local pid = term_pid(buf)
-  if not pid then
-    return nil
-  end
-  if SYSNAME == "Linux" then
-    return linux_has_child(pid)
-  elseif SYSNAME == "Darwin" or IS_BSD then
-    return pgrep_has_child(pid)
-  elseif IS_WINDOWS then
-    return windows_has_child(pid)
-  end
-  return nil
-end
-
----@return boolean
-local function wait_for_repl(buf)
-  if shell_has_child(buf) == nil then
-    return true
-  end
-  return vim.wait(2000, function()
-    return shell_has_child(buf)
-  end, 20) and shell_has_child(buf) == true
-end
 
 ---@return string|nil
 local function resolve_file(path, term_buf)
@@ -505,7 +24,7 @@ local function resolve_file(path, term_buf)
     candidates = { path }
   else
     candidates = {}
-    local cwd = term_cwd(term_buf)
+    local cwd = platform.term_cwd(term_buf)
     if cwd then
       candidates[#candidates + 1] = cwd .. SEP .. path
     end
@@ -619,7 +138,7 @@ end
 
 ---@return integer
 local function pty_width(term_buf)
-  local win = find_win_for_buf(term_buf)
+  local win = term.find_win_for_buf(term_buf)
   return win and vim.api.nvim_win_get_width(win) or vim.o.columns
 end
 
@@ -779,7 +298,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
     if not pin_row then
       return
     end
-    local w = find_win_for_buf(term_buf)
+    local w = term.find_win_for_buf(term_buf)
     if w then
       vim.api.nvim_win_call(w, function()
         local view = vim.fn.winsaveview()
@@ -805,7 +324,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local tick = vim.api.nvim_buf_get_changedtick(term_buf)
       if tick == last_tick then
         elapsed = elapsed + WATCH_INTERVAL
-        local busy = term_busy(term_buf)
+        local busy = platform.term_busy(term_buf)
         if (seen and busy == false) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
           flush_pin()
           stop()
@@ -825,7 +344,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       end
       seen = true
 
-      local win = find_win_for_buf(term_buf)
+      local win = term.find_win_for_buf(term_buf)
 
       local typing = win == vim.api.nvim_get_current_win() and vim.api.nvim_get_mode().mode:sub(1, 1) == "t"
 
@@ -944,7 +463,7 @@ function M.errors_to_quickfix()
   vim.fn.setqflist({}, " ", { title = "tarminal errors", items = items })
   local qf = config.opts.quickfix
   if qf.close_terminal then
-    local win = find_win_for_buf(term_buf)
+    local win = term.find_win_for_buf(term_buf)
     if win and not pcall(vim.api.nvim_win_close, win, false) then
       vim.api.nvim_win_call(win, function()
         vim.cmd("enew")
@@ -959,23 +478,23 @@ function M.errors_to_quickfix()
 end
 
 local function get_or_create_shell_term()
-  local buf = find_live_terminal("is_shell", true)
+  local buf = term.find_live_terminal("is_shell", true)
   if buf then
-    return buf, ensure_window_for_buf(buf)
+    return buf, term.ensure_window_for_buf(buf)
   end
   local win
-  buf, win = open_shell_term("tarminal://shell")
+  buf, win = term.open_shell_term("tarminal://shell")
   if not buf then
     return nil
   end
   vim.b[buf].is_shell = true
-  enable_shell_integration(buf)
+  term.enable_shell_integration(buf)
   return buf, win
 end
 
 function M.toggle()
-  local buf = find_live_terminal("is_shell", true)
-  local win = find_win_for_buf(buf)
+  local buf = term.find_live_terminal("is_shell", true)
+  local win = term.find_win_for_buf(buf)
   if win then
     if not pcall(vim.api.nvim_win_close, win, false) then
       vim.api.nvim_win_call(win, function()
@@ -990,9 +509,9 @@ end
 local function execute_in_shell(cmd, dir)
   local code_win = vim.api.nvim_get_current_win()
 
-  local existing = find_live_terminal("is_shell", true)
-  if existing and term_busy(existing, true) then
-    ensure_window_for_buf(existing)
+  local existing = term.find_live_terminal("is_shell", true)
+  if existing and platform.term_busy(existing, true) then
+    term.ensure_window_for_buf(existing)
     vim.api.nvim_set_current_win(code_win)
     vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
     return
@@ -1025,13 +544,13 @@ local function execute_in_shell(cmd, dir)
   if banner or config.opts.park_on_error then
     watch_run_output(term_buf, banner, start_row, config.opts.park_on_error)
   end
-  term_send_command(term_buf, full)
+  term.term_send_command(term_buf, full)
   vim.b[term_buf].term_cwd = dir
-  prep_run_cache(term_buf, dir)
+  platform.prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
 
-  focus_after_send(term_win, code_win, config.opts.follow_run, banner ~= nil)
+  term.focus_after_send(term_win, code_win, config.opts.follow_run, banner ~= nil)
 end
 
 ---@class tarminal.RunContext
@@ -1265,17 +784,17 @@ end
 local function get_or_start_repl(ft)
   local repl_cmd = repl_spec(ft)
 
-  local buf = find_live_terminal("repl_ft", ft)
+  local buf = term.find_live_terminal("repl_ft", ft)
   if buf then
     -- REPL exited but the shell lives: relaunch it, else source hits the shell
-    if repl_cmd and shell_has_child(buf) == false then
-      term_send_command(buf, repl_cmd)
-      if not wait_for_repl(buf) then
+    if repl_cmd and platform.shell_has_child(buf) == false then
+      term.term_send_command(buf, repl_cmd)
+      if not platform.wait_for_repl(buf) then
         vim.notify("REPL is not running: " .. repl_cmd, vim.log.levels.ERROR)
         return
       end
     end
-    return buf, ensure_window_for_buf(buf)
+    return buf, term.ensure_window_for_buf(buf)
   end
 
   if not repl_cmd then
@@ -1285,15 +804,15 @@ local function get_or_start_repl(ft)
 
   local dir = vim.fn.expand("%:p:h")
   local win
-  buf, win = open_shell_term("tarminal://repl:" .. ft)
+  buf, win = term.open_shell_term("tarminal://repl:" .. ft)
   if not buf then
     return nil
   end
-  term_cd(buf, dir)
-  term_send_command(buf, repl_cmd)
+  term.term_cd(buf, dir)
+  term.term_send_command(buf, repl_cmd)
   vim.b[buf].repl_ft = ft
   -- ensure the REPL came up before sending, else source hits the shell
-  if not wait_for_repl(buf) then
+  if not platform.wait_for_repl(buf) then
     vim.notify("REPL failed to start: " .. repl_cmd, vim.log.levels.ERROR)
     vim.api.nvim_buf_delete(buf, { force = true })
     return
@@ -1312,7 +831,7 @@ local function send_to_repl(repl_buf, text)
   elseif bracketed then
     text = "\x1b[200~" .. text .. "\x1b[201~\n"
   end
-  term_send(repl_buf, text)
+  term.term_send(repl_buf, text)
 end
 
 ---@param command_opts table|nil :Tarminal command callback data
@@ -1330,7 +849,7 @@ function M.send_selection(command_opts)
   end
 
   send_to_repl(repl_buf, text)
-  focus_after_send(repl_win, code_win, config.opts.follow_repl)
+  term.focus_after_send(repl_win, code_win, config.opts.follow_repl)
 end
 
 local function line_is_marker(s)
@@ -1379,7 +898,7 @@ function M.send_cell()
   end
 
   send_to_repl(repl_buf, text)
-  focus_after_send(repl_win, code_win, config.opts.follow_repl)
+  term.focus_after_send(repl_win, code_win, config.opts.follow_repl)
 end
 
 local function define_error_highlight()
@@ -1402,7 +921,7 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("BufWipeout", {
     group = group,
     callback = function(ev)
-      shell_cache[ev.buf] = nil
+      platform.clear_cache(ev.buf)
     end,
   })
   pcall(vim.api.nvim_create_autocmd, "TermRequest", {
@@ -1415,7 +934,7 @@ function M.setup(opts)
       if type(seq) ~= "string" then
         return
       end
-      local cwd = osc7_cwd(seq)
+      local cwd = platform.osc7_cwd(seq)
       if cwd and cwd ~= "" then
         vim.b[ev.buf].term_cwd = cwd
         vim.b[ev.buf].osc7_active = true

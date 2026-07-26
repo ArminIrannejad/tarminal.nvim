@@ -1,5 +1,7 @@
 describe("tarminal platform", function()
   local tarminal
+  local platform = require("tarminal.platform")
+  local term = require("tarminal.term")
 
   local function find_upvalue(fn, wanted, seen)
     if seen[fn] then
@@ -45,7 +47,7 @@ describe("tarminal platform", function()
   end)
 
   it("parses the cwd out of an OSC 7 report", function()
-    local osc7_cwd = get_upvalue(tarminal.setup, "osc7_cwd")
+    local osc7_cwd = platform.osc7_cwd
     local ESC, BEL = "\027", "\007"
 
     assert.equals("/tmp", osc7_cwd(ESC .. "]7;file://myhost/tmp" .. ESC .. "\\"))
@@ -55,7 +57,7 @@ describe("tarminal platform", function()
   end)
 
   it("translates OSC 7 drive paths only on Windows", function()
-    local osc7_cwd = get_upvalue(tarminal.setup, "osc7_cwd")
+    local osc7_cwd = platform.osc7_cwd
     local cases = {
       { "/C:/Users/me", "C:/Users/me" }, -- pwsh
       { "/c/Users/me", "C:/Users/me" }, -- msys / git bash
@@ -73,7 +75,7 @@ describe("tarminal platform", function()
   end)
 
   it("extracts the cwd row from procstat -f output", function()
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_procstat_cwd")
+    local parse = platform.parse_procstat_cwd
     local out = table.concat({
       "  PID COMM               FD T V FLAGS    REF  OFFSET PRO NAME",
       " 1234 bash               rt v r r------   1       0   -  -",
@@ -99,7 +101,7 @@ describe("tarminal platform", function()
   end)
 
   it("parses native Windows cwd probe output", function()
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_windows_cwd")
+    local parse = platform.parse_windows_cwd
     assert.equals("C:\\Users\\me\\proj", parse("C:\\Users\\me\\proj\r\n"))
     assert.equals("C:\\Users\\me", parse("C:\\Users\\me\\\r\n"))
     assert.equals("C:\\", parse("C:\\"))
@@ -113,8 +115,8 @@ describe("tarminal platform", function()
     if sysname() ~= "Windows_NT" then
       return
     end
-    local cmd = get_upvalue(tarminal.jump_to_error, "windows_cwd_cmd")
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_windows_cwd")
+    local cmd = platform.windows_cwd_cmd
+    local parse = platform.parse_windows_cwd
     local out = vim.fn.system(cmd(vim.fn.getpid()))
     local norm = function(p)
       return (p or ""):gsub("\\", "/"):lower()
@@ -127,7 +129,7 @@ describe("tarminal platform", function()
       return
     end
     local uv = vim.uv or vim.loop
-    local windows_cwd = get_upvalue(tarminal.jump_to_error, "windows_cwd")
+    local windows_cwd = platform.windows_cwd
     local buf = vim.api.nvim_create_buf(false, true)
     local t0 = uv.hrtime()
     assert.is_nil(windows_cwd(buf, vim.fn.getpid()))
@@ -136,7 +138,7 @@ describe("tarminal platform", function()
   end)
 
   it("selects an OSC 7 shell-integration snippet by shell basename", function()
-    local osc7_snippet = get_upvalue(tarminal.toggle, "osc7_snippet")
+    local osc7_snippet = term.osc7_snippet
 
     assert.is_string(osc7_snippet("/bin/bash"))
     assert.is_string(osc7_snippet("zsh"))
@@ -147,7 +149,7 @@ describe("tarminal platform", function()
     assert.is_nil(osc7_snippet("/usr/bin/fish"))
     assert.is_nil(osc7_snippet("cmd.exe"))
 
-    local OSC7_SETUP = get_upvalue(tarminal.toggle, "OSC7_SETUP")
+    local OSC7_SETUP = term.OSC7_SETUP
     for name, snippet in pairs(OSC7_SETUP) do
       assert.is_truthy(snippet:find("]7;file://", 1, true), name .. " snippet missing OSC 7")
     end
