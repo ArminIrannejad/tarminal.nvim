@@ -3,40 +3,6 @@ describe("tarminal platform", function()
   local platform = require("tarminal.platform")
   local term = require("tarminal.term")
 
-  local function find_upvalue(fn, wanted, seen)
-    if seen[fn] then
-      return nil
-    end
-    seen[fn] = true
-    local fns = {}
-    for i = 1, 40 do
-      local name, value = debug.getupvalue(fn, i)
-      if not name then
-        break
-      end
-      if name == wanted then
-        return value
-      end
-      if type(value) == "function" then
-        fns[#fns + 1] = value
-      end
-    end
-    for _, f in ipairs(fns) do
-      local value = find_upvalue(f, wanted, seen)
-      if value ~= nil then
-        return value
-      end
-    end
-  end
-
-  local function get_upvalue(fn, wanted)
-    local value = find_upvalue(fn, wanted, {})
-    if value == nil then
-      error("missing upvalue: " .. wanted)
-    end
-    return value
-  end
-
   local function sysname()
     return (vim.uv or vim.loop).os_uname().sysname
   end
@@ -92,7 +58,7 @@ describe("tarminal platform", function()
     end
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int main(){}" }, file)
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = require("tarminal.errors").parse_error_line
     local parsed, line, col = parse(file .. ":10:2: error", vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
     assert.equals(file, parsed)

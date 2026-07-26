@@ -1,5 +1,6 @@
 describe("tarminal", function()
   local tarminal
+  local errors = require("tarminal.errors")
   local platform = require("tarminal.platform")
   local term = require("tarminal.term")
 
@@ -325,7 +326,7 @@ describe("tarminal", function()
     vim.fn.mkdir(dir, "p")
     vim.fn.writefile({ "error()" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local parsed_file, line, col = parse(file .. ":12:4: error", vim.api.nvim_get_current_buf())
     vim.fn.delete(dir, "rf")
 
@@ -348,7 +349,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".scala"
     vim.fn.writefile({ "object Main" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = "[error] " .. file .. ":12:4: Not found: value broken"
     local parsed_file, line, col, span_start, span_end = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -364,7 +365,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".rs"
     vim.fn.writefile({ "fn main() {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = " --> " .. file .. ":2:23"
     local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -379,7 +380,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".ml"
     vim.fn.writefile({ "let answer = 42" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = ('File "%s", line 1, characters 19-26:'):format(file)
     local parsed_file, line, col = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -393,7 +394,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".cpp"
     vim.fn.writefile({ "int main() {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = file .. ":4:18: error: invalid conversion from 'const char*' to 'int'"
     local parsed_file, line, col = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -409,7 +410,7 @@ describe("tarminal", function()
     vim.fn.mkdir(dir, "p")
     vim.fn.writefile({ "int main() {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local parsed_file, line, col = parse(file .. ":1:2: error", vim.api.nvim_get_current_buf())
     vim.fn.delete(dir, "rf")
 
@@ -422,7 +423,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".js"
     vim.fn.writefile({ "throw new Error()" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = "    at Object.<anonymous> (" .. file .. ":1:7)"
     local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -440,7 +441,7 @@ describe("tarminal", function()
     vim.fn.mkdir(dir, "p")
     vim.fn.writefile({ "class Main {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     -- the source name is glued to the frame's method with no space before "("
     local output = "\tat pkg.Main.run(" .. file .. ":123)"
     local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
@@ -457,7 +458,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".js"
     vim.fn.writefile({ "function broken( {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local parsed_file, line, col = parse(file .. ":2", vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
 
@@ -469,7 +470,7 @@ describe("tarminal", function()
   it("classifies severity from the error pattern's type capture", function()
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int main() {}" }, file)
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local buf = vim.api.nvim_get_current_buf()
 
     local function sev(text)
@@ -489,7 +490,7 @@ describe("tarminal", function()
         { pattern = "at (%S+) line (%d+)", file = 1, lnum = 2, resolve = false },
       },
     })
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     -- the path need not exist on disk when the pattern sets resolve = false
     local file, line = parse("Died at /no/such/script.pl line 42.", vim.api.nvim_get_current_buf())
     assert.equals("/no/such/script.pl", file)
@@ -505,7 +506,7 @@ describe("tarminal", function()
   end)
 
   it("uses display width when rebuilding wrapped terminal lines", function()
-    local logical_line_at = get_upvalue(tarminal.jump_to_error, "logical_line_at")
+    local logical_line_at = errors.logical_line_at
     local logical, first, last = logical_line_at({ "éé", "tail" }, 2, 4)
     assert.equals("tail", logical)
     assert.equals(2, first)
@@ -787,7 +788,7 @@ describe("tarminal", function()
 
     -- a leftover highlight from a previous run, sitting on a line the
     -- terminal will rewrite in place
-    local ns = get_upvalue(tarminal.run, "ns")
+    local ns = errors.ns
     vim.api.nvim_buf_set_extmark(term_buf, ns, 0, 0, { end_col = 1, hl_group = "TarminalError", strict = false })
 
     tarminal.run()
@@ -971,7 +972,7 @@ describe("tarminal", function()
     end
     assert.is_not_nil(term_buf)
 
-    local ns = get_upvalue(tarminal.run, "ns")
+    local ns = errors.ns
     local highlighted = vim.wait(6000, function()
       return #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}) > 0
     end, 50)
@@ -1205,7 +1206,7 @@ describe("tarminal", function()
     end
     assert.is_not_nil(term_buf)
 
-    local ns = get_upvalue(tarminal.run, "ns")
+    local ns = errors.ns
     local highlighted = vim.wait(6000, function()
       return #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}) > 0
     end, 50)
