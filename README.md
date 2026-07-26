@@ -24,11 +24,15 @@ the current file, and sends selections or cells to a REPL.
 
 ## Install
 
+Pin to the latest release — `main` is a moving target and may be ahead of any
+released version.
+
 With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
   "ArminIrannejad/tarminal.nvim",
+  version = "*", -- latest release
   config = function()
     require("tarminal").setup()
   end,
@@ -38,7 +42,9 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 With `vim.pack` on Neovim 0.12 or newer:
 
 ```lua
-vim.pack.add({ "https://github.com/ArminIrannejad/tarminal.nvim" })
+vim.pack.add({
+  { src = "https://github.com/ArminIrannejad/tarminal.nvim", version = vim.version.range("*") },
+})
 require("tarminal").setup()
 ```
 
