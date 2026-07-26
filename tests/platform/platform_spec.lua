@@ -98,9 +98,41 @@ describe("tarminal platform", function()
     assert.equals(2, col)
   end)
 
-  it("has no cheap native cwd probe on Windows", function()
+  it("parses native Windows cwd probe output", function()
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_windows_cwd")
+    assert.equals("C:\\Users\\me\\proj", parse("C:\\Users\\me\\proj\r\n"))
+    assert.equals("C:\\Users\\me", parse("C:\\Users\\me\\\r\n"))
+    assert.equals("C:\\", parse("C:\\"))
+    assert.equals("\\\\server\\share\\x", parse("\\\\server\\share\\x\r\n"))
+    assert.is_nil(parse(nil))
+    assert.is_nil(parse(""))
+    assert.is_nil(parse("Add-Type : error CS0117: nope"))
+  end)
+
+  it("reads a real cwd via the PEB probe on Windows", function()
+    if sysname() ~= "Windows_NT" then
+      return
+    end
+    local cmd = get_upvalue(tarminal.jump_to_error, "windows_cwd_cmd")
+    local parse = get_upvalue(tarminal.jump_to_error, "parse_windows_cwd")
+    local out = vim.fn.system(cmd(vim.fn.getpid()))
+    local norm = function(p)
+      return (p or ""):gsub("\\", "/"):lower()
+    end
+    assert.equals(norm(vim.fn.getcwd()), norm(parse(out)))
+  end)
+
+  it("never blocks on a cold native cwd probe", function()
+    if sysname() ~= "Windows_NT" then
+      return
+    end
+    local uv = vim.uv or vim.loop
     local windows_cwd = get_upvalue(tarminal.jump_to_error, "windows_cwd")
-    assert.is_nil(windows_cwd(1234))
+    local buf = vim.api.nvim_create_buf(false, true)
+    local t0 = uv.hrtime()
+    assert.is_nil(windows_cwd(buf, vim.fn.getpid()))
+    assert.is_true((uv.hrtime() - t0) / 1e6 < 500)
+    vim.api.nvim_buf_delete(buf, { force = true })
   end)
 
   it("selects an OSC 7 shell-integration snippet by shell basename", function()
