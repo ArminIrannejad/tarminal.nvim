@@ -6,6 +6,8 @@ vim.opt.runtimepath:prepend(root)
 vim.opt.runtimepath:prepend(plenary)
 vim.opt.swapfile = false
 vim.opt.shadafile = "NONE"
+-- keep long temp paths on one terminal row so location lines don't wrap
+vim.opt.columns = 220
 
 vim.env.SHELL = "/bin/sh"
 

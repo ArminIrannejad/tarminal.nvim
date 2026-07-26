@@ -19,8 +19,8 @@ the current file, and sends selections or cells to a REPL.
 
 ## Requirements
 
-- Neovim 0.9 or newer
-- !Windows (WSL works)
+- Neovim 0.10 or newer
+- A Unix-like OS: Linux (incl. WSL), macOS, or BSD
 
 ## Install
 

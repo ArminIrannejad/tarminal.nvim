@@ -1,42 +1,10 @@
 describe("tarminal", function()
   local tarminal
-
-  -- Search `fn`'s upvalues for `wanted`, descending into function-valued
-  -- upvalues (locals extracted into helpers, like execute_in_shell, put
-  -- what they capture one level deeper).
-  local function find_upvalue(fn, wanted, seen)
-    if seen[fn] then
-      return nil
-    end
-    seen[fn] = true
-    local fns = {}
-    for i = 1, 40 do
-      local name, value = debug.getupvalue(fn, i)
-      if not name then
-        break
-      end
-      if name == wanted then
-        return value
-      end
-      if type(value) == "function" then
-        fns[#fns + 1] = value
-      end
-    end
-    for _, f in ipairs(fns) do
-      local value = find_upvalue(f, wanted, seen)
-      if value ~= nil then
-        return value
-      end
-    end
-  end
-
-  local function get_upvalue(fn, wanted)
-    local value = find_upvalue(fn, wanted, {})
-    if value == nil then
-      error("missing upvalue: " .. wanted)
-    end
-    return value
-  end
+  local errors = require("tarminal.errors")
+  local platform = require("tarminal.platform")
+  local repl = require("tarminal.repl")
+  local run = require("tarminal.run")
+  local term = require("tarminal.term")
 
   -- Wait until run `id`'s banner is printed and the shell has taken the
   -- foreground back: only then will a follow-up run() not be refused by
@@ -44,7 +12,7 @@ describe("tarminal", function()
   -- when two runs are issued back-to-back).
   local function wait_run_finished(term_buf, id)
     local token = ("RUN[%d]"):format(id)
-    local term_busy = get_upvalue(tarminal.run, "term_busy")
+    local term_busy = platform.term_busy
     return vim.wait(8000, function()
       local seen = false
       for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
@@ -112,7 +80,7 @@ describe("tarminal", function()
 
   it("automatically compiles and runs compiler-based runners", function()
     tarminal.setup({ time_runs = false, runners = { c = "clang -Wpedantic -Wall" } })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local command = build({
       file = "/tmp/example.c",
       stem = "example",
@@ -124,13 +92,13 @@ describe("tarminal", function()
 
   it("appends the file to interpreted runners", function()
     tarminal.setup({ time_runs = false })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
     assert.equals("python '/tmp/example.py'", build(ctx))
   end)
 
   it("times runs only when a time binary is installed", function()
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local py = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
     local c = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
 
@@ -147,7 +115,7 @@ describe("tarminal", function()
 
   it("does not overwrite an extensionless source file when compiling", function()
     tarminal.setup({ time_runs = false })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local command = build({ file = "/tmp/prog", stem = "prog", dir = "/tmp", ft = "c" })
     assert.equals("cc '/tmp/prog' -o 'prog.out' && ./'prog.out'", command)
   end)
@@ -157,7 +125,7 @@ describe("tarminal", function()
       time_runs = false,
       runners = { zig = { cmd = "zig build-exe", run_binary = true } },
     })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local command = build({
       file = "/tmp/example.zig",
       stem = "example",
@@ -172,21 +140,21 @@ describe("tarminal", function()
       time_runs = false,
       runners = { c = { cmd = "cc", run_binary = false } },
     })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("cc '/tmp/example.c'", build(ctx))
   end)
 
   it("infers running the binary by name for a table runner without a run_binary flag", function()
     tarminal.setup({ time_runs = false, runners = { c = { cmd = "clang -Wall" } } })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("clang -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
   it("appends a runner's args after the file", function()
     tarminal.setup({ time_runs = false })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     -- the bundled odin runner: `odin run <file> -file`
     local ctx = { file = "/tmp/example.odin", stem = "example", dir = "/tmp", ft = "odin" }
     assert.equals("odin run '/tmp/example.odin' -file", build(ctx))
@@ -197,17 +165,30 @@ describe("tarminal", function()
       time_runs = false,
       runners = { c = { cmd = "cc", args = "-lm", run_binary = true } },
     })
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
     assert.equals("cc '/tmp/example.c' -lm -o 'example' && ./'example'", build(ctx))
   end)
 
   it("recognizes compiler paths and versioned compiler names", function()
-    local build = get_upvalue(tarminal.run, "build_runner_command")
+    local build = run.build_runner_command
     local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
 
     tarminal.setup({ time_runs = false, runners = { c = "/usr/bin/clang-17 -Wall" } })
     assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
+  end)
+
+  it("keeps a spaced shell path as one argv entry", function()
+    assert.same({ "bash", "-l" }, term.shell_cmd("bash -l"))
+
+    local dir = vim.fn.tempname() .. " with space"
+    vim.fn.mkdir(dir, "p")
+    local exe = dir .. "/fakesh"
+    vim.fn.writefile({ "#!/bin/sh" }, exe)
+    vim.fn.setfperm(exe, "rwxr-xr-x")
+    assert.same({ exe }, term.shell_cmd(exe))
+    assert.same({ exe, "-l" }, term.shell_cmd(exe .. " -l"))
+    vim.fn.delete(dir, "rf")
   end)
 
   it("runs a named file with its configured runner", function()
@@ -234,7 +215,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefgh" })
     vim.fn.setpos("'<", { 0, 1, 3, 0 })
     vim.fn.setpos("'>", { 0, 1, 5, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("cde", get_selection("v"))
   end)
 
@@ -242,7 +223,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcé" })
     vim.fn.setpos("'<", { 0, 1, 1, 0 })
     vim.fn.setpos("'>", { 0, 1, 4, 0 }) -- é occupies bytes 4-5
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("abcé", get_selection("v"))
   end)
 
@@ -250,7 +231,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "xéy", "abc" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 })
     vim.fn.setpos("'>", { 0, 2, 2, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("é\nb", get_selection("\22"))
   end)
 
@@ -258,7 +239,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefgh" })
     vim.fn.setpos("'<", { 0, 1, 3, 0 })
     vim.fn.setpos("'>", { 0, 1, 5, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     local prev = vim.o.selection
     vim.o.selection = "exclusive"
     local got = get_selection("v")
@@ -270,7 +251,7 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcd", "efgh" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 })
     vim.fn.setpos("'>", { 0, 2, 4, 0 })
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     local prev = vim.o.selection
     vim.o.selection = "exclusive"
     local got = get_selection("\22")
@@ -285,13 +266,13 @@ describe("tarminal", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "\tA", "12345678B" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 }) -- A, byte col 2, screen col 9
     vim.fn.setpos("'>", { 0, 2, 9, 0 }) -- B, byte col 9, screen col 9
-    local get_selection = get_upvalue(tarminal.send_selection, "get_visual_selection")
+    local get_selection = repl.get_visual_selection
     assert.equals("A\nB", get_selection("\22"))
   end)
 
   it("extracts an explicit line range", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
-    local get_range = get_upvalue(tarminal.send_selection, "get_line_range")
+    local get_range = repl.get_line_range
     assert.equals("two\nthree", get_range(2, 3))
   end)
 
@@ -302,7 +283,7 @@ describe("tarminal", function()
       "print(2)",
     })
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
-    local get_cell = get_upvalue(tarminal.send_cell, "get_current_cell_text")
+    local get_cell = repl.get_current_cell_text
     assert.equals("print(2)\n", get_cell())
   end)
 
@@ -313,7 +294,7 @@ describe("tarminal", function()
       "print(2)",
     })
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
-    local get_cell = get_upvalue(tarminal.send_cell, "get_current_cell_text")
+    local get_cell = repl.get_current_cell_text
     assert.equals('print(1)\nprint("# COMMAND ----------")\nprint(2)\n', get_cell())
   end)
 
@@ -323,7 +304,7 @@ describe("tarminal", function()
     vim.fn.mkdir(dir, "p")
     vim.fn.writefile({ "error()" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local parsed_file, line, col = parse(file .. ":12:4: error", vim.api.nvim_get_current_buf())
     vim.fn.delete(dir, "rf")
 
@@ -333,7 +314,7 @@ describe("tarminal", function()
   end)
 
   it("extracts the cwd path from macOS lsof -Fn output", function()
-    local parse_lsof_cwd = get_upvalue(tarminal.jump_to_error, "parse_lsof_cwd")
+    local parse_lsof_cwd = platform.parse_lsof_cwd
     -- lsof -a -p <pid> -d cwd -Fn emits the pid, the fd, then the n<path> line
     assert.equals("/Users/armin/project", parse_lsof_cwd("p12345\nfcwd\nn/Users/armin/project\n"))
     -- a path containing spaces must survive intact
@@ -346,7 +327,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".scala"
     vim.fn.writefile({ "object Main" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = "[error] " .. file .. ":12:4: Not found: value broken"
     local parsed_file, line, col, span_start, span_end = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -362,7 +343,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".rs"
     vim.fn.writefile({ "fn main() {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = " --> " .. file .. ":2:23"
     local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -377,7 +358,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".ml"
     vim.fn.writefile({ "let answer = 42" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = ('File "%s", line 1, characters 19-26:'):format(file)
     local parsed_file, line, col = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -391,7 +372,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".cpp"
     vim.fn.writefile({ "int main() {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = file .. ":4:18: error: invalid conversion from 'const char*' to 'int'"
     local parsed_file, line, col = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -407,7 +388,7 @@ describe("tarminal", function()
     vim.fn.mkdir(dir, "p")
     vim.fn.writefile({ "int main() {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local parsed_file, line, col = parse(file .. ":1:2: error", vim.api.nvim_get_current_buf())
     vim.fn.delete(dir, "rf")
 
@@ -420,7 +401,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".js"
     vim.fn.writefile({ "throw new Error()" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local output = "    at Object.<anonymous> (" .. file .. ":1:7)"
     local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
@@ -438,7 +419,7 @@ describe("tarminal", function()
     vim.fn.mkdir(dir, "p")
     vim.fn.writefile({ "class Main {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     -- the source name is glued to the frame's method with no space before "("
     local output = "\tat pkg.Main.run(" .. file .. ":123)"
     local parsed_file, line, col, span_start = parse(output, vim.api.nvim_get_current_buf())
@@ -455,7 +436,7 @@ describe("tarminal", function()
     local file = vim.fn.tempname() .. ".js"
     vim.fn.writefile({ "function broken( {}" }, file)
 
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local parsed_file, line, col = parse(file .. ":2", vim.api.nvim_get_current_buf())
     vim.fn.delete(file)
 
@@ -467,7 +448,7 @@ describe("tarminal", function()
   it("classifies severity from the error pattern's type capture", function()
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int main() {}" }, file)
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     local buf = vim.api.nvim_get_current_buf()
 
     local function sev(text)
@@ -487,7 +468,7 @@ describe("tarminal", function()
         { pattern = "at (%S+) line (%d+)", file = 1, lnum = 2, resolve = false },
       },
     })
-    local parse = get_upvalue(tarminal.jump_to_error, "parse_error_line")
+    local parse = errors.parse_error_line
     -- the path need not exist on disk when the pattern sets resolve = false
     local file, line = parse("Died at /no/such/script.pl line 42.", vim.api.nvim_get_current_buf())
     assert.equals("/no/such/script.pl", file)
@@ -503,7 +484,7 @@ describe("tarminal", function()
   end)
 
   it("uses display width when rebuilding wrapped terminal lines", function()
-    local logical_line_at = get_upvalue(tarminal.jump_to_error, "logical_line_at")
+    local logical_line_at = errors.logical_line_at
     local logical, first, last = logical_line_at({ "éé", "tail" }, 2, 4)
     assert.equals("tail", logical)
     assert.equals(2, first)
@@ -511,8 +492,8 @@ describe("tarminal", function()
   end)
 
   it("recognizes REPL entries that disable bracketed paste", function()
-    local send = get_upvalue(tarminal.send_cell, "send_to_repl")
-    local spec = get_upvalue(send, "repl_spec")
+    local send = repl.send_to_repl
+    local spec = repl.repl_spec
     local cmd, bracketed = spec("python")
     assert.equals("ipython", cmd)
     assert.is_true(bracketed)
@@ -627,8 +608,8 @@ describe("tarminal", function()
   end)
 
   it("exposes block markers through repl_spec", function()
-    local send = get_upvalue(tarminal.send_cell, "send_to_repl")
-    local spec = get_upvalue(send, "repl_spec")
+    local send = repl.send_to_repl
+    local spec = repl.repl_spec
     local cmd, _, block_open, block_close = spec("haskell")
     assert.equals("ghci", cmd)
     assert.equals(":{", block_open)
@@ -698,7 +679,7 @@ describe("tarminal", function()
 
     assert.is_true(ok)
     assert.equals(before, #vim.api.nvim_list_wins())
-    assert.is_nil(get_upvalue(tarminal.toggle, "find_live_terminal")("is_shell", true))
+    assert.is_nil(term.find_live_terminal("is_shell", true))
     assert.is_true(#notes >= 1)
     assert.equals(vim.log.levels.ERROR, notes[#notes].level)
   end)
@@ -785,7 +766,7 @@ describe("tarminal", function()
 
     -- a leftover highlight from a previous run, sitting on a line the
     -- terminal will rewrite in place
-    local ns = get_upvalue(tarminal.run, "ns")
+    local ns = errors.ns
     vim.api.nvim_buf_set_extmark(term_buf, ns, 0, 0, { end_col = 1, hl_group = "TarminalError", strict = false })
 
     tarminal.run()
@@ -887,7 +868,8 @@ describe("tarminal", function()
     -- foreground-job detection needs a shell with job control (a plain
     -- POSIX sh runs children in its own process group, where the busy
     -- guard degrades to a no-op) — pin bash rather than inherit $SHELL
-    if vim.fn.executable("bash") == 0 then
+    local bash = "bash"
+    if vim.fn.executable(bash) == 0 then
       return
     end
     local file = vim.fn.tempname() .. ".lua"
@@ -902,7 +884,7 @@ describe("tarminal", function()
     tarminal.setup({
       park_on_error = false,
       follow_run = "none",
-      shell = "bash",
+      shell = bash,
       runners = { lua = "sh " .. script },
     })
 
@@ -916,7 +898,7 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_buf)
-    local term_busy = get_upvalue(tarminal.run, "term_busy")
+    local term_busy = platform.term_busy
     local busy = vim.wait(8000, function()
       return term_busy(term_buf) == true
     end, 50)
@@ -967,7 +949,7 @@ describe("tarminal", function()
     end
     assert.is_not_nil(term_buf)
 
-    local ns = get_upvalue(tarminal.run, "ns")
+    local ns = errors.ns
     local highlighted = vim.wait(6000, function()
       return #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}) > 0
     end, 50)
@@ -1201,7 +1183,7 @@ describe("tarminal", function()
     end
     assert.is_not_nil(term_buf)
 
-    local ns = get_upvalue(tarminal.run, "ns")
+    local ns = errors.ns
     local highlighted = vim.wait(6000, function()
       return #vim.api.nvim_buf_get_extmarks(term_buf, ns, 0, -1, {}) > 0
     end, 50)
@@ -1248,7 +1230,7 @@ describe("tarminal", function()
     -- The first run remains in the buffer while the window is scrolled to
     -- the second banner; no terminal output is needed to pad the viewport.
     assert.is_not_nil(banner_row(first))
-    local find_win_for_buf = get_upvalue(tarminal.run, "find_win_for_buf")
+    local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
     assert.is_true(vim.wait(4000, function()
       return vim.api.nvim_win_call(term_win, function()
@@ -1288,7 +1270,7 @@ describe("tarminal", function()
       end
     end
 
-    local find_win_for_buf = get_upvalue(tarminal.run, "find_win_for_buf")
+    local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
     assert.is_true(vim.wait(4000, function()
       return vim.api.nvim_win_call(term_win, function()
@@ -1357,7 +1339,7 @@ describe("tarminal", function()
   end)
 
   it("clamps a line 0 location to the first line when jumping", function()
-    local file = vim.fn.tempname() .. ".c"
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
     vim.fn.writefile({ "int a;", "int b;" }, file)
     -- linkers emit locations with line 0
     local script = vim.fn.tempname() .. ".sh"
@@ -1385,7 +1367,7 @@ describe("tarminal", function()
   end)
 
   it("navigates and jumps between error locations, repeatedly", function()
-    local file = vim.fn.tempname() .. ".c"
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
     vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
 
     -- Run a script that prints two error locations instead of an
@@ -1501,7 +1483,7 @@ describe("tarminal", function()
   end)
 
   it("jumps to a file-only location without a line number", function()
-    local file = vim.fn.tempname() .. ".txt"
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".txt"
     vim.fn.writefile({ "hello", "world" }, file)
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({ ("printf 'see %%s\\n' %s"):format(file), "sleep 10" }, script)
