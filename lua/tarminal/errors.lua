@@ -125,7 +125,8 @@ local function parse_error_line(line, term_buf)
     end
     local path, offset = resolve_file_suffix(f, term_buf)
     if path then
-      return path, tonumber(l), tonumber(c), s + offset, e, 2
+      local word = line:match("^:?%s*(%l+)", e + 1)
+      return path, tonumber(l), tonumber(c), s + offset, e, severity_rank(word)
     end
     init = e + 1
   end
@@ -147,6 +148,26 @@ local function logical_line_at(lines, row, width)
     last = last + 1
   end
   return table.concat(lines, "", first, last), first, last
+end
+
+--- Parse the diagnostic at `row`, preferring the reconstructed logical line but
+--- falling back to individual physical rows. This recovers the case where an
+--- unrelated line exactly fills the width (looks like a soft wrap) and would
+--- otherwise be glued onto the diagnostic below it.
+---@return integer first, integer last, string|nil file, integer|nil lnum,
+---        integer|nil col, integer|nil span_s, integer|nil span_e, integer|nil sev
+local function scan_logical_at(lines, row, width, term_buf)
+  local logical, first, last = logical_line_at(lines, row, width)
+  local file, lnum, col, s, e, sev = parse_error_line(logical, term_buf)
+  if not file and first ~= last then
+    for r = first, last do
+      file, lnum, col, s, e, sev = parse_error_line(lines[r], term_buf)
+      if file then
+        return r, r, file, lnum, col, s, e, sev
+      end
+    end
+  end
+  return first, last, file, lnum, col, s, e, sev
 end
 
 ---@return integer|nil win
@@ -188,8 +209,7 @@ function M.jump_to_error()
   end
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local row = vim.api.nvim_win_get_cursor(0)[1]
-  local line = logical_line_at(lines, row, pty_width(term_buf))
-  local file, lnum, col = parse_error_line(line, term_buf)
+  local _, _, file, lnum, col = scan_logical_at(lines, row, pty_width(term_buf), term_buf)
   if not file then
     vim.notify("No file location on this line", vim.log.levels.WARN)
     return
@@ -354,8 +374,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local width = pty_width(term_buf)
       local i = banner_row + 1
       while i <= #lines do
-        local logical, first, last = logical_line_at(lines, i, width)
-        local file, _, _, span_s, span_e, sev = parse_error_line(logical, term_buf)
+        local first, last, file, _, _, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf)
         if file then
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
           if not parked and sev >= config.opts.error_threshold then
@@ -384,8 +403,7 @@ local function goto_error(dir)
   local _, cur_first, cur_last = logical_line_at(lines, row, width)
   local i = dir > 0 and cur_last + 1 or cur_first - 1
   while i >= 1 and i <= #lines do
-    local logical, first, last = logical_line_at(lines, i, width)
-    local file, _, _, _, _, sev = parse_error_line(logical, term_buf)
+    local first, last, file, _, _, _, _, sev = scan_logical_at(lines, i, width, term_buf)
     if file and sev >= config.opts.error_threshold then
       vim.api.nvim_win_set_cursor(0, { first, 0 })
       return
@@ -471,6 +489,7 @@ end
 M.ns = ns
 M.parse_error_line = parse_error_line
 M.logical_line_at = logical_line_at
+M.scan_logical_at = scan_logical_at
 M.watch_run_output = watch_run_output
 M.define_highlight = define_error_highlight
 

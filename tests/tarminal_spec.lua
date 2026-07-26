@@ -462,6 +462,22 @@ describe("tarminal", function()
     vim.fn.delete(file)
   end)
 
+  it("keeps severity when the fallback parser handles a path with spaces", function()
+    -- the space defeats the built-in patterns, forcing the fallback parser
+    local file = vim.fn.tempname() .. " sp.c"
+    vim.fn.writefile({ "int main() {}" }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+    assert.equals(file, (parse(file .. ":1:1: warning", buf)))
+    local function sev(text)
+      return select(6, parse(text, buf))
+    end
+    assert.equals(1, sev(file .. ":1:1: warning: hmm"))
+    assert.equals(0, sev(file .. ":1:1: note"))
+    assert.equals(2, sev(file .. ":1:1"))
+    vim.fn.delete(file)
+  end)
+
   it("matches a user-added pattern and trusts it with resolve = false", function()
     tarminal.setup({
       error_patterns = {
@@ -489,6 +505,20 @@ describe("tarminal", function()
     assert.equals("tail", logical)
     assert.equals(2, first)
     assert.equals(2, last)
+  end)
+
+  it("does not glue an exact-width line onto the diagnostic below it", function()
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int main() {}" }, file)
+    local buf = vim.api.nvim_get_current_buf()
+    local width = 20
+    -- a line that happens to exactly fill the width looks like a soft wrap
+    local lines = { string.rep("x", width), file .. ":2:1: error" }
+    local first, last, f = errors.scan_logical_at(lines, 2, width, buf)
+    assert.equals(file, f)
+    assert.equals(2, first)
+    assert.equals(2, last)
+    vim.fn.delete(file)
   end)
 
   it("recognizes REPL entries that disable bracketed paste", function()
