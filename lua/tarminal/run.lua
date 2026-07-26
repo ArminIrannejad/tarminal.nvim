@@ -106,7 +106,8 @@ end
 
 local function is_compiler(runner)
   local exe = runner:match("%S+") or runner
-  exe = exe:match("[^/]+$") or exe
+  exe = exe:match("[^/\\]+$") or exe
+  exe = exe:gsub("%.[eE][xX][eE]$", "")
   local unversioned = exe:match("^(.-)%-%d+$")
   for _, name in ipairs(config.opts.compilers) do
     if exe == name or unversioned == name then

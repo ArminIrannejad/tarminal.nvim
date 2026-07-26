@@ -178,6 +178,17 @@ describe("tarminal", function()
     assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
+  it("recognizes Windows compiler names and paths", function()
+    local build = run.build_runner_command
+    local ctx = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
+
+    tarminal.setup({ time_runs = false, runners = { c = "gcc.exe" } })
+    assert.equals("gcc.exe '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
+
+    tarminal.setup({ time_runs = false, runners = { c = [[C:\msys64\bin\clang.exe -Wall]] } })
+    assert.equals([[C:\msys64\bin\clang.exe -Wall '/tmp/example.c' -o 'example' && ./'example']], build(ctx))
+  end)
+
   it("keeps a spaced shell path as one argv entry", function()
     assert.same({ "bash", "-l" }, term.shell_cmd("bash -l"))
 
