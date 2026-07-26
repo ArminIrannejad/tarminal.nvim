@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.2.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.1.1...v0.2.0) (2026-07-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop Windows support
+
+### Features
+
+* auto-enable shell integration ([c9f3a3d](https://github.com/ArminIrannejad/tarminal.nvim/commit/c9f3a3d8cbb4644747eee78f11d9df5b33775d79))
+* bsd cwd via procstat ([f2163d1](https://github.com/ArminIrannejad/tarminal.nvim/commit/f2163d1b8cdf78d2b51f9f683cca2c15a08ee46e))
+* drop Windows support ([2a63fc3](https://github.com/ArminIrannejad/tarminal.nvim/commit/2a63fc30c44b141957164bfb923cc249ea2b2b1c))
+* native Windows cwd probe via PEB read ([50978cd](https://github.com/ArminIrannejad/tarminal.nvim/commit/50978cd50700d4bd18cd3c86f381a15aeebdaf1a))
+* track cwd via osc 7 ([0639e6e](https://github.com/ArminIrannejad/tarminal.nvim/commit/0639e6e499dc7fd62d82f5832db5aa34c2756c2b))
+* windows process detection ([a97c90d](https://github.com/ArminIrannejad/tarminal.nvim/commit/a97c90d28909c5e72e3d6223b0f16e3d60b5f592))
+
+
+### Bug Fixes
+
+* bypass cached busy probe on Windows for fresh checks ([0d0adab](https://github.com/ArminIrannejad/tarminal.nvim/commit/0d0adab519badf9c52118efc71fa4afeb63554c8))
+* ignore conhost in the Windows busy probe ([2fd47fc](https://github.com/ArminIrannejad/tarminal.nvim/commit/2fd47fc05013e120003e056bcb1e6b055e3b8262))
+* keep a spaced shell path as one argv entry ([fc8e56f](https://github.com/ArminIrannejad/tarminal.nvim/commit/fc8e56f449b2843541dedc03979987c0389fbb5a))
+* keep drive letters in Windows error paths ([3c065d3](https://github.com/ArminIrannejad/tarminal.nvim/commit/3c065d3a26cb2c49f9392d09458c001f6a36dbb9))
+* keep severity and unglue diagnostics in error parsing ([f5bb87b](https://github.com/ArminIrannejad/tarminal.nvim/commit/f5bb87b769f8b948c59af97856d9e7d6cf741cc2))
+* match .exe and backslash-path compilers ([732fc3b](https://github.com/ArminIrannejad/tarminal.nvim/commit/732fc3be195eed6eb074e0d0093f7b3641c4f698))
+* off by one exclusive ([9235b99](https://github.com/ArminIrannejad/tarminal.nvim/commit/9235b99121e3cbbce1526be85d1b6a6cab9dba27))
+* quote for the POSIX terminal, not &shell ([cc2a5fe](https://github.com/ArminIrannejad/tarminal.nvim/commit/cc2a5fe50038a98784bd437e14bf46890ef6d045))
+* translate MSYS and Cygwin OSC 7 paths on Windows ([2891018](https://github.com/ArminIrannejad/tarminal.nvim/commit/28910189b747fad75bd9dc2c665f1f4938f841ae))
+* treat UNC diagnostic paths as absolute ([207b3b6](https://github.com/ArminIrannejad/tarminal.nvim/commit/207b3b699af167a8ce6eec3b3e85a04168169331))
+* windows path resolution ([79d9a93](https://github.com/ArminIrannejad/tarminal.nvim/commit/79d9a93cfd69db663eb20cb49c0b20e5c400e758))
+
 ## [0.1.1](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.1.0...v0.1.1) (2026-07-23)
 
 
