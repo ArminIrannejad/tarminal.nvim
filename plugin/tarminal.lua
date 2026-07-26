@@ -20,16 +20,10 @@ local subcommands = {
   "errors_to_quickfix",
 }
 
--- Complete `:Tarminal exec <cmd> <args...>`.
--- `head` is the exec arguments typed before the word being completed.
 local function complete_exec(arglead, head)
-  -- Past the command word: complete files *and* directories.
   if head:match("%S") then
     return vim.fn.getcompletion(arglead, "file")
   end
-  -- Command word. Empty arg would scan the whole PATH (thousands of
-  -- entries, slow on WSL) — list the cwd instead. Path-like commands
-  -- (./script, ~/bin/x) go through file completion so non-executables show.
   if arglead == "" or arglead:match("[/~.]") then
     return vim.fn.getcompletion(arglead, "file")
   end
