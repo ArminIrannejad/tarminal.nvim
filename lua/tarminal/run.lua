@@ -86,6 +86,15 @@ local function execute_in_shell(cmd, dir)
     full = "cd " .. sh_quote(dir) .. " && " .. cmd
   end
 
+  if config.opts.clear_run then
+    -- wipe scrollback in the same line so old runs aren't scrollable; output
+    -- now starts at the top, so the bannerless watcher scans from row 0
+    full = term.CLEAR_SEQ .. " && " .. full
+    if start_row then
+      start_row = 0
+    end
+  end
+
   if banner or config.opts.park_on_error then
     errors.watch_run_output(term_buf, banner, start_row, config.opts.park_on_error)
   end

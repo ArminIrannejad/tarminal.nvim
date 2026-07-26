@@ -107,6 +107,7 @@ require("tarminal").setup({
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = true,                     -- time the run (for compiled files: the binary)
   banner = true,                        -- print banner before each run
+  clear_run = false,                    -- wipe the terminal + scrollback before each run
   quickfix = {
     open = true,
     close_terminal = true,

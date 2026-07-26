@@ -48,6 +48,7 @@ Call the setup function, optionally passing overrides for the defaults: >lua
       cell_marker = "# COMMAND ----------",
       time_runs = true,
       banner = true,            -- "===== RUN[n]: <time> =====" line before each run
+      clear_run = false,        -- wipe the terminal + scrollback before each run
       runners = {
         python = "python",
         c = "cc",
@@ -104,6 +105,10 @@ without clearing or padding the terminal, so previous runs remain in the
 scrollable terminal buffer. Error highlighting and quickfix collection still
 track a bannerless run's output; only the view pinning to the banner is
 skipped.
+
+With `clear_run = true` the terminal and its scrollback are wiped before each
+run, so only the current run is on screen and earlier output is not
+scrollable. It composes with `banner`.
 
 Everything tarminal types at the shell prompt (run commands, `cd`s, REPL
 launches) is prefixed with a space, so it stays out of the shell history

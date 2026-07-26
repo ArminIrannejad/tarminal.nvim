@@ -1270,6 +1270,45 @@ describe("tarminal", function()
     vim.fn.delete(file)
   end)
 
+  it("wipes prior runs from the buffer when clear_run is set", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ clear_run = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    local term_buf
+    local function banner_row(token)
+      for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:match("^=====") and l:find(token, 1, true) then
+          return row
+        end
+      end
+    end
+
+    tarminal.run()
+    local first = ("RUN[%d]"):format(tarminal._run_id)
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
+    assert.is_not_nil(banner_row(first))
+
+    tarminal.run()
+    local second = ("RUN[%d]"):format(tarminal._run_id)
+    assert.is_true(vim.wait(4000, function()
+      return banner_row(second) ~= nil
+    end, 50))
+    -- the scrollback clear ran ahead of the second banner: the first is gone
+    assert.is_true(vim.wait(4000, function()
+      return banner_row(first) == nil
+    end, 50))
+    vim.fn.delete(file)
+  end)
+
   -- Headless nvim never reaches terminal-insert ("t") mode, so this exercises
   -- the immediate-pin path rather than the deferred flush; it guards that
   -- insert-follow still lands the banner at the top of the window.
