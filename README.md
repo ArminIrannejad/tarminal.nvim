@@ -20,10 +20,7 @@ the current file, and sends selections or cells to a REPL.
 ## Requirements
 
 - Neovim 0.10 or newer
-- On Windows: a POSIX shell (Git Bash or MSYS2) set as `shell` — point it at
-  the full path (e.g. `C:/Program Files/Git/bin/bash.exe`) so WSL's
-  `bash.exe` doesn't shadow it. PowerShell (stock) is used for process
-  probes only.
+- A Unix-like OS: Linux (incl. WSL), macOS, or BSD
 
 ## Install
 
