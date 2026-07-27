@@ -100,14 +100,14 @@ require("tarminal").setup({
   split_height = 12,                    -- height of the terminal split
   split_position = "auto",              -- "auto", "bottom", or "top"
   shell = vim.env.SHELL or "/bin/bash",
-  follow_run = "focus",                 -- "none", "focus", or "insert"
-  follow_repl = "none",    
+  follow_run = "none",                  -- "none", "focus", or "insert"
+  follow_repl = "none",
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
-  time_runs = true,                     -- time the run (for compiled files: the binary)
-  banner = true,                        -- print banner before each run
+  time_runs = false,                    -- time the run (for compiled files: the binary)
+  banner = false,                       -- print "===== RUN[n] =====" before each run
   clear_run = false,                    -- wipe the terminal + scrollback before each run
   shell_integration = true,             -- track the shell's cwd via OSC 7
   quickfix = {
