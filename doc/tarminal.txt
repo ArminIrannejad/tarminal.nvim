@@ -1,4 +1,4 @@
-*tarminal.txt*        For Neovim >= 0.9        Last change: 2026 July 22
+*tarminal.txt*       For Neovim >= 0.10        Last change: 2026 July 27
 
 ==============================================================================
 Table of Contents                                 *tarminal-table-of-contents*
@@ -17,8 +17,8 @@ tarminal.nvim is a terminal runner / REPL integration:
 - A shared shell terminal buffer in a full-width split (placed by
   'splitbelow', or forced with `split_position`), reused by runs and shown
   independently in each tab.
-- Run the current file with a per-filetype runner command; output is
-  separated by run banners.
+- Run the current file with a per-filetype runner command; output appends at
+  the prompt, or is separated by run banners with `banner = true`.
 - File locations in terminal output ("foo.c:12:5:", 'File "foo.py", line
   12') are highlighted and navigable; after a run the cursor is parked on
   the first error. The recognized formats are configurable (`error_patterns`)
@@ -36,18 +36,21 @@ fall back to Neovim's own working directory.
 ==============================================================================
 2. Setup                                                      *tarminal-setup*
 
-Call the setup function, optionally passing overrides for the defaults: >lua
+Calling the setup function is optional; do it only to override defaults: >lua
 
     require("tarminal").setup({
       split_height = 12,
       split_position = "auto",  -- "auto" (follow 'splitbelow') | "bottom" | "top"
       shell = vim.env.SHELL or "/bin/bash",
-      follow_run = "focus",     -- "none" | "focus" | "insert"
+      follow_run = "none",      -- "none" | "focus" | "insert"
       follow_repl = "none",
       park_on_error = true,
       cell_marker = "# COMMAND ----------",
-      time_runs = true,
-      banner = true,            -- "===== RUN[n]: <time> =====" line before each run
+      time_runs = false,
+      banner = false,           -- "===== RUN[n]: <time> =====" line before each run
+      clear_run = false,        -- wipe the terminal + scrollback before each run
+      autosave = true,          -- write the buffer before a run; false runs from disk
+      shell_integration = true, -- track the shell's cwd via OSC 7
       runners = {
         python = "python",
         c = "cc",
@@ -81,6 +84,11 @@ Options hold settings only — tarminal never creates keymaps. Map keys
 yourself to the |:Tarminal| subcommands or the Lua functions; see
 |tarminal-mappings|.
 
+                                                       *tarminal-checkhealth*
+`:checkhealth tarminal` reports which per-OS probes answer on this machine,
+whether `shell` is executable and gets a shell-integration snippet, and which
+configured runners and REPLs are not installed.
+
 Runner and REPL tables are merged by filetype, so each default is
 independently overridable. For an interpreted runner, tarminal appends the
 file (`python foo.py`). If the command's first program is listed in
@@ -93,17 +101,40 @@ an explicit flag instead: `zig = { cmd = "zig build-exe", run_binary = true }`
 builds with `-o` and runs the produced binary; `run_binary = false` invokes
 the command on the file directly — which may still compile (`zig build-exe
 foo.zig`), it just does not produce and run a separate binary. With
-`time_runs = true`
-(the default), runs are timed only when a `time` binary is installed (the
-shell keyword is not relied on); for compiled files only the produced
+`time_runs = true`, runs are timed only when a `time` binary is installed
+(the shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
 
-With `banner = false` a run prints nothing extra and output simply appends at
-the prompt. With a banner, tarminal scrolls the Neovim window to the new run
+By default a run prints nothing extra and its output simply appends at the
+prompt. With `banner = true` tarminal prefixes each run with a
+`===== RUN[n]: <time> =====` line and scrolls the Neovim window to it,
 without clearing or padding the terminal, so previous runs remain in the
-scrollable terminal buffer. Error highlighting and quickfix collection still
-track a bannerless run's output; only the view pinning to the banner is
-skipped.
+scrollable terminal buffer. Error highlighting and quickfix collection track
+a bannerless run's output just the same; only the view pinning to the banner
+is skipped.
+
+With `clear_run = true` the terminal and its scrollback are wiped before each
+run, so only the current run is on screen and earlier output is not
+scrollable. It composes with `banner`.
+
+                                                *tarminal-shell-integration*
+With `shell_integration = true` (the default), tarminal types a one-line
+setup snippet into each shell terminal it opens, then clears the screen so
+the snippet and its output are not left behind. The snippet installs a hook
+that reports the working directory via OSC 7 after every prompt, which is
+how a relative path in error output resolves against the directory the
+shell is actually in — not the one it started in.
+
+Only `bash`, `zsh`, and `fish` are recognized, by the basename of `shell`.
+Any other shell is left untouched: nothing is typed, nothing is cleared, and
+cwd tracking falls back to the per-OS probe (`/proc`, `lsof`, `procstat`)
+and then to Neovim's own working directory.
+
+The snippet only defines a function and registers a prompt hook. It is typed
+at the prompt of tarminal's own terminals; it never touches your shell rc
+files, and no shell outside Neovim is affected. Set `shell_integration =
+false` to disable it — on Linux the `/proc` probe already answers, so little
+is lost; on OpenBSD, where no probe exists, cwd tracking stops working.
 
 Everything tarminal types at the shell prompt (run commands, `cd`s, REPL
 launches) is prefixed with a space, so it stays out of the shell history
@@ -167,6 +198,7 @@ never touches terminal buffers it did not create.
                           and re-runs verbatim, so a bare exec never re-
                           resolves `%` against the terminal itself. Output
                           gets the same banner and error navigation as a run.
+                          <Tab> completes file paths, never $PATH commands.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
                           Send the selected line range to the REPL. The visual

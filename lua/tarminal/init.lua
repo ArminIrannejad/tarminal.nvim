@@ -19,9 +19,8 @@ M.next_error = errors.next_error
 M.prev_error = errors.prev_error
 M.errors_to_quickfix = errors.errors_to_quickfix
 
----@param opts tarminal.Config|nil merged over the defaults
-function M.setup(opts)
-  config.setup(opts)
+-- runs on require, so highlights and cwd tracking work without setup()
+local function register()
   local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
   errors.define_highlight()
@@ -35,12 +34,13 @@ function M.setup(opts)
       platform.clear_cache(ev.buf)
     end,
   })
-  pcall(vim.api.nvim_create_autocmd, "TermRequest", {
+  vim.api.nvim_create_autocmd("TermRequest", {
     group = group,
     callback = function(ev)
       if vim.bo[ev.buf].filetype ~= "tarminal" then
         return
       end
+      -- 0.11 wraps the sequence in a table; 0.10 passes it as a bare string
       local seq = type(ev.data) == "table" and ev.data.sequence or ev.data
       if type(seq) ~= "string" then
         return
@@ -54,7 +54,13 @@ function M.setup(opts)
   })
 end
 
--- compat: keep config and the historical M._* fields readable on the facade
+register()
+
+---@param opts tarminal.Config|nil merged over the defaults; optional
+function M.setup(opts)
+  config.setup(opts)
+end
+
 setmetatable(M, {
   __index = function(_, k)
     if k == "config" then

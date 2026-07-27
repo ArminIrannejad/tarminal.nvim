@@ -1,6 +1,4 @@
 # tarminal.nvim
-> [!NOTE]
-> This plugin is still very much WIP
 
 A terminal runner and REPL for Neovim.
 
@@ -19,8 +17,11 @@ the current file, and sends selections or cells to a REPL.
 
 ## Requirements
 
-- Neovim 0.9 or newer
+- Neovim 0.10 or newer
 - A Unix-like OS: Linux (incl. WSL), macOS, or BSD
+
+Run `:checkhealth tarminal` to verify the platform probes, your shell, and the
+configured runners and REPLs.
 
 ## Install
 
@@ -33,9 +34,6 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 {
   "ArminIrannejad/tarminal.nvim",
   version = "*", -- latest release
-  config = function()
-    require("tarminal").setup()
-  end,
 }
 ```
 
@@ -45,8 +43,9 @@ With `vim.pack` on Neovim 0.12 or newer:
 vim.pack.add({
   { src = "https://github.com/ArminIrannejad/tarminal.nvim", version = vim.version.range("*") },
 })
-require("tarminal").setup()
 ```
+
+`setup()` is optional — call it only to change defaults.
 
 ## Keymaps
 
@@ -74,8 +73,8 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
-Put these after `require("tarminal").setup()`, or inside the `config` function
-in your lazy.nvim spec.
+Put these anywhere in your config, or inside the `keys`/`config` block of your
+lazy.nvim spec.
 
 ## Commands
 
@@ -90,6 +89,8 @@ in your lazy.nvim spec.
 - `:Tarminal next_error` and `:Tarminal prev_error` move between errors.
 - `:Tarminal errors_to_quickfix` adds all found errors to quickfix.
 
+`<Tab>` completes subcommands, and file paths after `:Tarminal exec`.
+
 ## Configuration
 
 You only need to set the options you want to change:
@@ -99,20 +100,39 @@ require("tarminal").setup({
   split_height = 12,                    -- height of the terminal split
   split_position = "auto",              -- "auto", "bottom", or "top"
   shell = vim.env.SHELL or "/bin/bash",
-  follow_run = "focus",                 -- "none", "focus", or "insert"
-  follow_repl = "none",    
+  follow_run = "none",                  -- "none", "focus", or "insert"
+  follow_repl = "none",
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
-  time_runs = true,                     -- time the run (for compiled files: the binary)
-  banner = true,                        -- print banner before each run
+  time_runs = false,                    -- time the run (for compiled files: the binary)
+  banner = false,                       -- print "===== RUN[n] =====" before each run
+  clear_run = false,                    -- wipe the terminal + scrollback before each run
+  shell_integration = true,             -- track the shell's cwd via OSC 7
   quickfix = {
     open = true,
     close_terminal = true,
   },
 })
 ```
+
+### Shell integration
+
+When tarminal opens a shell terminal it types a one-line setup snippet at the
+prompt, then clears the screen so the snippet and its output aren't left
+behind. The snippet installs a prompt hook that reports the working directory
+via OSC 7, so a relative path in error output resolves against the directory
+the shell is actually in — not the one it started in.
+
+Only `bash`, `zsh`, and `fish` are recognized, by the basename of `shell`. Any
+other shell is left alone: nothing is typed, nothing is cleared, and tarminal
+falls back to a per-OS probe (`/proc`, `lsof`, `procstat`), then to Neovim's
+working directory.
+
+It only defines a function and registers a prompt hook in tarminal's own
+terminals — your shell rc files are never touched, and no shell outside Neovim
+is affected. Turn it off with `shell_integration = false`.
 
 ### Runners
 

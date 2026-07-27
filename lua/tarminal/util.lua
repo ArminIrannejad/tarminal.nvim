@@ -1,6 +1,6 @@
 --- Shared helpers and platform constants.
 
-local uv = vim.uv or vim.loop
+local uv = vim.uv
 
 local M = {}
 

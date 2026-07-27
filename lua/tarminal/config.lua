@@ -21,6 +21,7 @@
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a time binary exists
 ---@field banner boolean print a RUN[n] banner before each run
+---@field clear_run boolean wipe the terminal + scrollback before each run (not scrollable)
 ---@field shell_integration boolean emit + track cwd via OSC 7 in the spawned shell
 ---@field runners table<string, string|tarminal.Runner> filetype -> run command
 ---@field compilers string[] program names built with `-o` then run
@@ -59,13 +60,14 @@ local defaults = {
   split_height = 12,
   split_position = "auto",
   shell = vim.env.SHELL or "/bin/bash",
-  follow_run = "focus",
+  follow_run = "none",
   follow_repl = "none",
   autosave = true,
   park_on_error = true,
   cell_marker = "# COMMAND ----------",
-  time_runs = true,
-  banner = true,
+  time_runs = false,
+  banner = false,
+  clear_run = false,
   shell_integration = true,
   runners = {
     python = "python",

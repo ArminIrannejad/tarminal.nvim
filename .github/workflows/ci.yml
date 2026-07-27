@@ -13,7 +13,7 @@ jobs:
       - uses: JohnnyMorganz/stylua-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          version: latest
+          version: v2.5.2
           args: --check lua/ plugin/ tests/
 
   # Full behavioral suite on the POSIX platforms (spawns real shells).
@@ -22,11 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        neovim: [v0.9.5, stable, nightly]
-        exclude:
-          # no v0.9.5 build for macOS arm64 runners
-          - os: macos-latest
-            neovim: v0.9.5
+        # v0.10.4 is the stated minimum; v0.11.3 covers the release in between
+        neovim: [v0.10.4, v0.11.3, stable, nightly]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

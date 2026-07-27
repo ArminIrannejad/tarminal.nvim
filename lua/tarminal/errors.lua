@@ -7,7 +7,7 @@ local term = require("tarminal.term")
 
 local M = {}
 
-local uv = vim.uv or vim.loop
+local uv = vim.uv
 
 ---@return string|nil
 local function resolve_file(path, term_buf)
@@ -150,10 +150,6 @@ local function logical_line_at(lines, row, width)
   return table.concat(lines, "", first, last), first, last
 end
 
---- Parse the diagnostic at `row`, preferring the reconstructed logical line but
---- falling back to individual physical rows. This recovers the case where an
---- unrelated line exactly fills the width (looks like a soft wrap) and would
---- otherwise be glued onto the diagnostic below it.
 ---@return integer first, integer last, string|nil file, integer|nil lnum,
 ---        integer|nil col, integer|nil span_s, integer|nil span_e, integer|nil sev
 local function scan_logical_at(lines, row, width, term_buf)
