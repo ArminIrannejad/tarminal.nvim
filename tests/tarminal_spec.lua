@@ -98,6 +98,7 @@ describe("tarminal", function()
   end)
 
   it("times runs only when a time binary is installed", function()
+    tarminal.setup({ time_runs = true })
     local build = run.build_runner_command
     local py = { file = "/tmp/example.py", stem = "example", dir = "/tmp", ft = "python" }
     local c = { file = "/tmp/example.c", stem = "example", dir = "/tmp", ft = "c" }
@@ -782,7 +783,7 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({ banner = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
     tarminal.run()
     local term_buf
@@ -829,7 +830,7 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({ banner = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
     tarminal.run()
     local src = vim.api.nvim_get_current_buf()
@@ -1042,7 +1043,13 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ park_on_error = false, follow_run = "none", shell = "sh " .. script, runners = { lua = "true" } })
+    tarminal.setup({
+      banner = true,
+      park_on_error = false,
+      follow_run = "none",
+      shell = "sh " .. script,
+      runners = { lua = "true" },
+    })
 
     tarminal.run()
 
@@ -1230,7 +1237,7 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({ banner = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
     local term_buf
     local function banner_row(token)
@@ -1275,7 +1282,13 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ clear_run = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({
+      banner = true,
+      clear_run = true,
+      park_on_error = false,
+      follow_run = "none",
+      runners = { lua = "true" },
+    })
 
     local term_buf
     local function banner_row(token)
@@ -1317,7 +1330,7 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ park_on_error = false, follow_run = "insert", runners = { lua = "true" } })
+    tarminal.setup({ banner = true, park_on_error = false, follow_run = "insert", runners = { lua = "true" } })
 
     tarminal.run()
     local token = ("RUN[%d]"):format(tarminal._run_id)

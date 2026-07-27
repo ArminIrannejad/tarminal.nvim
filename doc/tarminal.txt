@@ -1,4 +1,4 @@
-*tarminal.txt*        For Neovim >= 0.9        Last change: 2026 July 22
+*tarminal.txt*        For Neovim >= 0.9        Last change: 2026 July 27
 
 ==============================================================================
 Table of Contents                                 *tarminal-table-of-contents*
@@ -42,12 +42,12 @@ Calling the setup function is optional; do it only to override defaults: >lua
       split_height = 12,
       split_position = "auto",  -- "auto" (follow 'splitbelow') | "bottom" | "top"
       shell = vim.env.SHELL or "/bin/bash",
-      follow_run = "focus",     -- "none" | "focus" | "insert"
+      follow_run = "none",      -- "none" | "focus" | "insert"
       follow_repl = "none",
       park_on_error = true,
       cell_marker = "# COMMAND ----------",
-      time_runs = true,
-      banner = true,            -- "===== RUN[n]: <time> =====" line before each run
+      time_runs = false,
+      banner = false,           -- "===== RUN[n]: <time> =====" line before each run
       clear_run = false,        -- wipe the terminal + scrollback before each run
       autosave = true,          -- write the buffer before a run; false runs from disk
       shell_integration = true, -- track the shell's cwd via OSC 7
@@ -101,17 +101,17 @@ an explicit flag instead: `zig = { cmd = "zig build-exe", run_binary = true }`
 builds with `-o` and runs the produced binary; `run_binary = false` invokes
 the command on the file directly — which may still compile (`zig build-exe
 foo.zig`), it just does not produce and run a separate binary. With
-`time_runs = true`
-(the default), runs are timed only when a `time` binary is installed (the
-shell keyword is not relied on); for compiled files only the produced
+`time_runs = true`, runs are timed only when a `time` binary is installed
+(the shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
 
-With `banner = false` a run prints nothing extra and output simply appends at
-the prompt. With a banner, tarminal scrolls the Neovim window to the new run
+By default a run prints nothing extra and its output simply appends at the
+prompt. With `banner = true` tarminal prefixes each run with a
+`===== RUN[n]: <time> =====` line and scrolls the Neovim window to it,
 without clearing or padding the terminal, so previous runs remain in the
-scrollable terminal buffer. Error highlighting and quickfix collection still
-track a bannerless run's output; only the view pinning to the banner is
-skipped.
+scrollable terminal buffer. Error highlighting and quickfix collection track
+a bannerless run's output just the same; only the view pinning to the banner
+is skipped.
 
 With `clear_run = true` the terminal and its scrollback are wiped before each
 run, so only the current run is on screen and earlier output is not
