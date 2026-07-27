@@ -108,7 +108,7 @@ require("tarminal").setup({
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = false,                    -- time the run (for compiled files: the binary)
   banner = false,                       -- print "===== RUN[n] =====" before each run
-  clear_run = false,                    -- wipe the terminal + scrollback before each run
+  clear_run = true,                     -- wipe the terminal + scrollback before each run
   shell_integration = true,             -- track the shell's cwd via OSC 7
   quickfix = {
     open = true,
@@ -116,6 +116,13 @@ require("tarminal").setup({
   },
 })
 ```
+
+### Runs
+
+Each run wipes the screen and the scrollback first, so the terminal shows the
+output of that run and nothing else — no `cd`, no run command, no leftovers from
+the run before. Set `clear_run = false` to keep the history and scroll back
+through it; pair it with `banner = true` to mark where each run starts.
 
 ### Shell integration
 

@@ -1003,6 +1003,7 @@ describe("tarminal", function()
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
     tarminal.setup({
+      clear_run = false, -- keep `cd` first in the typed line
       park_on_error = false,
       follow_run = "none",
       shell = "sh " .. script,
@@ -1045,6 +1046,7 @@ describe("tarminal", function()
     vim.bo.filetype = "lua"
     tarminal.setup({
       banner = true,
+      clear_run = false,
       park_on_error = false,
       follow_run = "none",
       shell = "sh " .. script,
@@ -1060,6 +1062,32 @@ describe("tarminal", function()
     vim.fn.delete(file)
     assert.is_nil(command:find("\\n\\n", 1, true))
     assert.is_nil(command:find("\\033[H", 1, true))
+  end)
+
+  it("wipes the screen ahead of the cd and the run command by default", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      park_on_error = false,
+      follow_run = "none",
+      shell = "sh " .. script,
+      runners = { lua = "true" },
+    })
+
+    tarminal.run()
+
+    assert.is_true(wait_capture(out, "cd "))
+    local command = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    -- the wipe runs first, so neither the cd nor the run command survives it
+    local wipe = command:find("\\033[3J", 1, true)
+    assert.is_not_nil(wipe)
+    assert.is_true(wipe < command:find("cd ", 1, true))
   end)
 
   it("exec expands % against the current file", function()
@@ -1237,7 +1265,13 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ banner = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({
+      banner = true,
+      clear_run = false,
+      park_on_error = false,
+      follow_run = "none",
+      runners = { lua = "true" },
+    })
 
     local term_buf
     local function banner_row(token)
