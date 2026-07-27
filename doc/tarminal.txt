@@ -84,6 +84,11 @@ Options hold settings only — tarminal never creates keymaps. Map keys
 yourself to the |:Tarminal| subcommands or the Lua functions; see
 |tarminal-mappings|.
 
+                                                       *tarminal-checkhealth*
+`:checkhealth tarminal` reports which per-OS probes answer on this machine,
+whether `shell` is executable and gets a shell-integration snippet, and which
+configured runners and REPLs are not installed.
+
 Runner and REPL tables are merged by filetype, so each default is
 independently overridable. For an interpreted runner, tarminal appends the
 file (`python foo.py`). If the command's first program is listed in
