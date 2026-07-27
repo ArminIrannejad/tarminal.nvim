@@ -224,7 +224,7 @@ function M.exec(arg, verbatim)
   end
 
   if not input or input == "" then
-    vim.ui.input({ prompt = "exec: ", default = state._last_exec_cmd, completion = "shellcmd" }, function(text)
+    vim.ui.input({ prompt = "exec: ", default = state._last_exec_cmd, completion = "file" }, function(text)
       if text and text ~= "" then
         M.exec(text, true)
       end

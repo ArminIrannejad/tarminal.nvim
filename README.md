@@ -91,6 +91,8 @@ lazy.nvim spec.
 - `:Tarminal next_error` and `:Tarminal prev_error` move between errors.
 - `:Tarminal errors_to_quickfix` adds all found errors to quickfix.
 
+`<Tab>` completes subcommands, and file paths after `:Tarminal exec`.
+
 ## Configuration
 
 You only need to set the options you want to change:
