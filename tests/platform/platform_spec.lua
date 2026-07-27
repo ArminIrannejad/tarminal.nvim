@@ -36,7 +36,8 @@ describe("tarminal platform", function()
     assert.is_string(osc7_snippet("/bin/bash"))
     assert.is_string(osc7_snippet("zsh"))
     assert.is_string(osc7_snippet("/usr/bin/zsh -l"))
-    assert.is_nil(osc7_snippet("/usr/bin/fish"))
+    assert.is_string(osc7_snippet("/usr/bin/fish"))
+    assert.is_nil(osc7_snippet("/bin/tcsh"))
 
     local OSC7_SETUP = term.OSC7_SETUP
     for name, snippet in pairs(OSC7_SETUP) do

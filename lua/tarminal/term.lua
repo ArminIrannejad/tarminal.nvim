@@ -124,9 +124,17 @@ local function term_cd(buf, dir)
   vim.b[buf].term_cwd = dir
 end
 
+-- clear scrollback (3J), home (H), then the screen (2J); works in bash/zsh/fish
+local CLEAR_SEQ = "printf '\\033[3J\\033[H\\033[2J'"
+
+local function clear_terminal(buf)
+  term_send_command(buf, CLEAR_SEQ)
+end
+
 local OSC7_SETUP = {
   bash = [[__tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD"; }; case ";${PROMPT_COMMAND};" in *__tarminal_osc7*) ;; *) PROMPT_COMMAND="__tarminal_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac]],
   zsh = [[autoload -Uz add-zsh-hook 2>/dev/null; __tarminal_osc7(){ printf '\033]7;file://%s%s\033\\' "${HOST:-}" "$PWD"; }; add-zsh-hook precmd __tarminal_osc7 2>/dev/null || precmd_functions+=(__tarminal_osc7)]],
+  fish = [[function __tarminal_osc7 --on-variable PWD; printf '\033]7;file://%s%s\033\\' "$hostname" "$PWD"; end; __tarminal_osc7]],
 }
 
 local function osc7_snippet(cmd)
@@ -142,6 +150,8 @@ local function enable_shell_integration(buf)
   local snippet = osc7_snippet(config.opts.shell)
   if snippet then
     term_send_command(buf, snippet)
+    -- hide the setup command + its output so the shell starts clean
+    clear_terminal(buf)
   end
 end
 
@@ -170,6 +180,8 @@ M.open_shell_term = open_shell_term
 M.term_send = term_send
 M.term_send_command = term_send_command
 M.term_cd = term_cd
+M.CLEAR_SEQ = CLEAR_SEQ
+M.clear_terminal = clear_terminal
 M.OSC7_SETUP = OSC7_SETUP
 M.osc7_snippet = osc7_snippet
 M.enable_shell_integration = enable_shell_integration

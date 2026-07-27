@@ -3,8 +3,8 @@ if vim.g.loaded_tarminal then
 end
 vim.g.loaded_tarminal = true
 
-if vim.fn.has("nvim-0.9") == 0 then
-  vim.notify("tarminal.nvim requires Neovim >= 0.9", vim.log.levels.ERROR)
+if vim.fn.has("nvim-0.10") == 0 then
+  vim.notify("tarminal.nvim requires Neovim >= 0.10", vim.log.levels.ERROR)
   return
 end
 
@@ -30,13 +30,23 @@ vim.api.nvim_create_user_command("Tarminal", function(cmd)
 end, {
   nargs = "*",
   range = true,
-  complete = function(arglead, cmdline)
-    if cmdline:match("Tarminal!?%s+%S+%s") then
+  complete = function(arglead, cmdline, cursorpos)
+    local before = cmdline:sub(1, cursorpos or #cmdline)
+    local rest = before:match("^%s*Tarminal!?%s+(.*)$")
+    if not rest then
       return {}
     end
-    return vim.tbl_filter(function(s)
-      return vim.startswith(s, arglead)
-    end, subcommands)
+    local sub = rest:match("^(%S+)%s+")
+    if not sub then
+      return vim.tbl_filter(function(s)
+        return vim.startswith(s, arglead)
+      end, subcommands)
+    end
+    -- paths only: $PATH would bury the useful matches under hundreds of names
+    if sub == "exec" then
+      return vim.fn.getcompletion(arglead, "file")
+    end
+    return {}
   end,
   desc = "Open Tarminal (default: toggle) — :Tarminal <Tab> for all actions",
 })
