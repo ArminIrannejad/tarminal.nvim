@@ -17,8 +17,8 @@ tarminal.nvim is a terminal runner / REPL integration:
 - A shared shell terminal buffer in a full-width split (placed by
   'splitbelow', or forced with `split_position`), reused by runs and shown
   independently in each tab.
-- Run the current file with a per-filetype runner command; output is
-  separated by run banners.
+- Run the current file with a per-filetype runner command; output appends at
+  the prompt, or is separated by run banners with `banner = true`.
 - File locations in terminal output ("foo.c:12:5:", 'File "foo.py", line
   12') are highlighted and navigable; after a run the cursor is parked on
   the first error. The recognized formats are configurable (`error_patterns`)
