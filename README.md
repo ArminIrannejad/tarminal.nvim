@@ -106,12 +106,30 @@ require("tarminal").setup({
   time_runs = true,                     -- time the run (for compiled files: the binary)
   banner = true,                        -- print banner before each run
   clear_run = false,                    -- wipe the terminal + scrollback before each run
+  shell_integration = true,             -- track the shell's cwd via OSC 7
   quickfix = {
     open = true,
     close_terminal = true,
   },
 })
 ```
+
+### Shell integration
+
+When tarminal opens a shell terminal it types a one-line setup snippet at the
+prompt, then clears the screen so the snippet and its output aren't left
+behind. The snippet installs a prompt hook that reports the working directory
+via OSC 7, so a relative path in error output resolves against the directory
+the shell is actually in — not the one it started in.
+
+Only `bash`, `zsh`, and `fish` are recognized, by the basename of `shell`. Any
+other shell is left alone: nothing is typed, nothing is cleared, and tarminal
+falls back to a per-OS probe (`/proc`, `lsof`, `procstat`), then to Neovim's
+working directory.
+
+It only defines a function and registers a prompt hook in tarminal's own
+terminals — your shell rc files are never touched, and no shell outside Neovim
+is affected. Turn it off with `shell_integration = false`.
 
 ### Runners
 
