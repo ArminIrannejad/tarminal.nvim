@@ -33,9 +33,6 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 {
   "ArminIrannejad/tarminal.nvim",
   version = "*", -- latest release
-  config = function()
-    require("tarminal").setup()
-  end,
 }
 ```
 
@@ -45,8 +42,9 @@ With `vim.pack` on Neovim 0.12 or newer:
 vim.pack.add({
   { src = "https://github.com/ArminIrannejad/tarminal.nvim", version = vim.version.range("*") },
 })
-require("tarminal").setup()
 ```
+
+`setup()` is optional — call it only to change defaults.
 
 ## Keymaps
 
@@ -74,8 +72,8 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
-Put these after `require("tarminal").setup()`, or inside the `config` function
-in your lazy.nvim spec.
+Put these anywhere in your config, or inside the `keys`/`config` block of your
+lazy.nvim spec.
 
 ## Commands
 

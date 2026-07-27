@@ -36,7 +36,7 @@ fall back to Neovim's own working directory.
 ==============================================================================
 2. Setup                                                      *tarminal-setup*
 
-Call the setup function, optionally passing overrides for the defaults: >lua
+Calling the setup function is optional; do it only to override defaults: >lua
 
     require("tarminal").setup({
       split_height = 12,
