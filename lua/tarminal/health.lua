@@ -4,21 +4,16 @@ local config = require("tarminal.config")
 local term = require("tarminal.term")
 local util = require("tarminal.util")
 
-local h = vim.health
-local start = h.start or h.report_start
-local ok = h.ok or h.report_ok
-local info = h.info or h.report_info
-local warn = h.warn or h.report_warn
-local err = h.error or h.report_error
+local start, ok, info, warn, err = vim.health.start, vim.health.ok, vim.health.info, vim.health.warn, vim.health.error
 
-local uv = vim.uv or vim.loop
+local uv = vim.uv
 
 local M = {}
 
 local function check_version()
   start("Neovim")
-  if vim.fn.has("nvim-0.9") == 0 then
-    err("Neovim 0.9 or newer is required")
+  if vim.fn.has("nvim-0.10") == 0 then
+    err("Neovim 0.10 or newer is required")
     return
   end
   ok(vim.fn.matchstr(vim.fn.execute("version"), "NVIM v\\zs[^\n]*"))

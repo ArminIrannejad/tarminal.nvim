@@ -19,7 +19,7 @@ the current file, and sends selections or cells to a REPL.
 
 ## Requirements
 
-- Neovim 0.9 or newer
+- Neovim 0.10 or newer
 - A Unix-like OS: Linux (incl. WSL), macOS, or BSD
 
 Run `:checkhealth tarminal` to verify the platform probes, your shell, and the

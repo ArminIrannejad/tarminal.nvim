@@ -34,12 +34,13 @@ local function register()
       platform.clear_cache(ev.buf)
     end,
   })
-  pcall(vim.api.nvim_create_autocmd, "TermRequest", {
+  vim.api.nvim_create_autocmd("TermRequest", {
     group = group,
     callback = function(ev)
       if vim.bo[ev.buf].filetype ~= "tarminal" then
         return
       end
+      -- 0.11 wraps the sequence in a table; 0.10 passes it as a bare string
       local seq = type(ev.data) == "table" and ev.data.sequence or ev.data
       if type(seq) ~= "string" then
         return

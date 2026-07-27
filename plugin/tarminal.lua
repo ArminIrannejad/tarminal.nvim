@@ -3,8 +3,8 @@ if vim.g.loaded_tarminal then
 end
 vim.g.loaded_tarminal = true
 
-if vim.fn.has("nvim-0.9") == 0 then
-  vim.notify("tarminal.nvim requires Neovim >= 0.9", vim.log.levels.ERROR)
+if vim.fn.has("nvim-0.10") == 0 then
+  vim.notify("tarminal.nvim requires Neovim >= 0.10", vim.log.levels.ERROR)
   return
 end
 
