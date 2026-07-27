@@ -7,7 +7,7 @@ local term = require("tarminal.term")
 
 local M = {}
 
-local uv = vim.uv or vim.loop
+local uv = vim.uv
 
 ---@return string|nil
 local function resolve_file(path, term_buf)
