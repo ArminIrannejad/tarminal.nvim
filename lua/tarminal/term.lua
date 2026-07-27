@@ -41,6 +41,16 @@ local function ensure_window_for_buf(buf)
   return win
 end
 
+-- close the terminal's window; the last window can't close, so blank it instead
+local function close_window_for_buf(buf)
+  local win = find_win_for_buf(buf)
+  if win and not pcall(vim.api.nvim_win_close, win, false) then
+    vim.api.nvim_win_call(win, function()
+      vim.cmd("enew")
+    end)
+  end
+end
+
 local function is_terminal_alive(buf)
   local job = get_job_id(buf)
   if not job then
@@ -175,6 +185,7 @@ end
 M.shell_cmd = shell_cmd
 M.find_win_for_buf = find_win_for_buf
 M.ensure_window_for_buf = ensure_window_for_buf
+M.close_window_for_buf = close_window_for_buf
 M.find_live_terminal = find_live_terminal
 M.open_shell_term = open_shell_term
 M.term_send = term_send
