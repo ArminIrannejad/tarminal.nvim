@@ -104,6 +104,7 @@ require("tarminal").setup({
   follow_repl = "none",
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
+  close_on_jump = false,                -- close the terminal once jump_to_error lands
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = false,                    -- time the run (for compiled files: the binary)
@@ -208,7 +209,9 @@ their own highlight (`TarminalWarning`), quickfix entries carry the severity, an
 `error_threshold` skips anything below it when parking, stepping between errors
 (`next_error`/`prev_error`), and collecting — set it to `2` to ignore warnings.
 Pressing Enter (`jump_to_error`) on a line always jumps to its location, whatever
-the severity.
+the severity. Set `close_on_jump = true` to close the terminal on the way out, so
+you land on the error with the split gone — the same thing `quickfix.close_terminal`
+does for `errors_to_quickfix`.
 
 ## License
 

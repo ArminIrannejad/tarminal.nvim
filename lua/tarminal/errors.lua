@@ -229,6 +229,10 @@ function M.jump_to_error()
   lnum = math.min(math.max(lnum or 1, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
+
+  if config.opts.close_on_jump then
+    term.close_window_for_buf(term_buf)
+  end
 end
 
 local WATCH_INTERVAL = 200

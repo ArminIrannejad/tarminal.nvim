@@ -46,6 +46,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       follow_run = "none",      -- "none" | "focus" | "insert"
       follow_repl = "none",
       park_on_error = true,
+      close_on_jump = false,    -- close the terminal once jump_to_error lands
       cell_marker = "# COMMAND ----------",
       time_runs = false,
       banner = false,           -- "===== RUN[n]: <time> =====" line before each run
@@ -172,6 +173,12 @@ errors (next_error/prev_error) and collecting (set it to 2 to ignore
 warnings). An explicit jump_to_error on the current line always jumps,
 whatever the severity.
 
+With `close_on_jump = true` a successful jump_to_error closes the terminal
+window on its way out, leaving you on the error with the split gone — what
+`quickfix.close_terminal` does for errors_to_quickfix. A jump that finds no
+location, or cannot open the file, leaves the terminal up. When the terminal
+is the last window it is emptied rather than closed.
+
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
 window in normal mode, "insert" moves there and enters terminal-mode.
@@ -207,7 +214,8 @@ never touches terminal buffers it did not create.
                           Send the selected line range to the REPL. The visual
                           mapping preserves exact character/block selections.
 :Tarminal jump_to_error   Jump to the file location on the current line
-                          (in a terminal buffer).
+                          (in a terminal buffer). Closing the terminal
+                          afterwards is controlled by `close_on_jump`.
 :Tarminal next_error      Move to the next error location.
 :Tarminal prev_error      Move to the previous error location.
 :Tarminal errors_to_quickfix
