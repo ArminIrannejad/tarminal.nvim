@@ -20,16 +20,6 @@ local subcommands = {
   "errors_to_quickfix",
 }
 
-local function complete_exec(arglead, head)
-  if head:match("%S") then
-    return vim.fn.getcompletion(arglead, "file")
-  end
-  if arglead == "" or arglead:match("[/~.]") then
-    return vim.fn.getcompletion(arglead, "file")
-  end
-  return vim.fn.getcompletion(arglead, "shellcmd")
-end
-
 vim.api.nvim_create_user_command("Tarminal", function(cmd)
   local sub = cmd.fargs[1] or "toggle"
   if not vim.tbl_contains(subcommands, sub) then
@@ -46,14 +36,15 @@ end, {
     if not rest then
       return {}
     end
-    local sub, after = rest:match("^(%S+)%s+(.*)$")
+    local sub = rest:match("^(%S+)%s+")
     if not sub then
       return vim.tbl_filter(function(s)
         return vim.startswith(s, arglead)
       end, subcommands)
     end
+    -- paths only: $PATH would bury the useful matches under hundreds of names
     if sub == "exec" then
-      return complete_exec(arglead, after:sub(1, #after - #arglead))
+      return vim.fn.getcompletion(arglead, "file")
     end
     return {}
   end,

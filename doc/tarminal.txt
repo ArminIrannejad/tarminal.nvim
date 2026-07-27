@@ -198,6 +198,7 @@ never touches terminal buffers it did not create.
                           and re-runs verbatim, so a bare exec never re-
                           resolves `%` against the terminal itself. Output
                           gets the same banner and error navigation as a run.
+                          <Tab> completes file paths, never $PATH commands.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
                           Send the selected line range to the REPL. The visual
