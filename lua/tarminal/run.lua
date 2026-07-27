@@ -39,13 +39,8 @@ end
 
 function M.toggle()
   local buf = term.find_live_terminal("is_shell", true)
-  local win = term.find_win_for_buf(buf)
-  if win then
-    if not pcall(vim.api.nvim_win_close, win, false) then
-      vim.api.nvim_win_call(win, function()
-        vim.cmd("enew")
-      end)
-    end
+  if term.find_win_for_buf(buf) then
+    term.close_window_for_buf(buf)
   else
     get_or_create_shell_term()
   end

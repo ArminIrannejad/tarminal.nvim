@@ -461,12 +461,7 @@ function M.errors_to_quickfix()
   vim.fn.setqflist({}, " ", { title = "tarminal errors", items = items })
   local qf = config.opts.quickfix
   if qf.close_terminal then
-    local win = term.find_win_for_buf(term_buf)
-    if win and not pcall(vim.api.nvim_win_close, win, false) then
-      vim.api.nvim_win_call(win, function()
-        vim.cmd("enew")
-      end)
-    end
+    term.close_window_for_buf(term_buf)
   end
   if qf.open then
     vim.cmd("botright copen")
