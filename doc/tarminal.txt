@@ -17,8 +17,9 @@ tarminal.nvim is a terminal runner / REPL integration:
 - A shared shell terminal buffer in a full-width split (placed by
   'splitbelow', or forced with `split_position`), reused by runs and shown
   independently in each tab.
-- Run the current file with a per-filetype runner command; output appends at
-  the prompt, or is separated by run banners with `banner = true`.
+- Run the current file with a per-filetype runner command; each run starts
+  from a cleared screen, or appends to the previous ones with
+  `clear_run = false`.
 - File locations in terminal output ("foo.c:12:5:", 'File "foo.py", line
   12') are highlighted and navigable; after a run the cursor is parked on
   the first error. The recognized formats are configurable (`error_patterns`)
@@ -45,10 +46,11 @@ Calling the setup function is optional; do it only to override defaults: >lua
       follow_run = "none",      -- "none" | "focus" | "insert"
       follow_repl = "none",
       park_on_error = true,
+      close_on_jump = false,    -- close the terminal once jump_to_error lands
       cell_marker = "# COMMAND ----------",
       time_runs = false,
       banner = false,           -- "===== RUN[n]: <time> =====" line before each run
-      clear_run = false,        -- wipe the terminal + scrollback before each run
+      clear_run = true,         -- wipe the terminal + scrollback before each run
       autosave = true,          -- write the buffer before a run; false runs from disk
       shell_integration = true, -- track the shell's cwd via OSC 7
       runners = {
@@ -105,17 +107,19 @@ foo.zig`), it just does not produce and run a separate binary. With
 (the shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
 
-By default a run prints nothing extra and its output simply appends at the
-prompt. With `banner = true` tarminal prefixes each run with a
-`===== RUN[n]: <time> =====` line and scrolls the Neovim window to it,
-without clearing or padding the terminal, so previous runs remain in the
-scrollable terminal buffer. Error highlighting and quickfix collection track
-a bannerless run's output just the same; only the view pinning to the banner
-is skipped.
+By default (`clear_run = true`) the terminal and its scrollback are wiped
+before each run, so the screen holds that run's output and nothing else: the
+`cd` and the run command tarminal typed are gone along with the run before
+it, and earlier output is not scrollable.
 
-With `clear_run = true` the terminal and its scrollback are wiped before each
-run, so only the current run is on screen and earlier output is not
-scrollable. It composes with `banner`.
+Set `clear_run = false` to keep the history instead — a run then prints
+nothing extra and its output simply appends at the prompt. With
+`banner = true` tarminal prefixes each run with a `===== RUN[n]: <time> =====`
+line and scrolls the Neovim window to it, so the runs kept in the scrollable
+buffer stay told apart. The two compose: banners survive a cleared run, they
+just have nothing above them. Error highlighting and quickfix collection
+track a bannerless run's output just the same; only the view pinning to the
+banner is skipped.
 
                                                 *tarminal-shell-integration*
 With `shell_integration = true` (the default), tarminal types a one-line
@@ -169,6 +173,12 @@ errors (next_error/prev_error) and collecting (set it to 2 to ignore
 warnings). An explicit jump_to_error on the current line always jumps,
 whatever the severity.
 
+With `close_on_jump = true` a successful jump_to_error closes the terminal
+window on its way out, leaving you on the error with the split gone — what
+`quickfix.close_terminal` does for errors_to_quickfix. A jump that finds no
+location, or cannot open the file, leaves the terminal up. When the terminal
+is the last window it is emptied rather than closed.
+
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
 window in normal mode, "insert" moves there and enters terminal-mode.
@@ -204,7 +214,8 @@ never touches terminal buffers it did not create.
                           Send the selected line range to the REPL. The visual
                           mapping preserves exact character/block selections.
 :Tarminal jump_to_error   Jump to the file location on the current line
-                          (in a terminal buffer).
+                          (in a terminal buffer). Closing the terminal
+                          afterwards is controlled by `close_on_jump`.
 :Tarminal next_error      Move to the next error location.
 :Tarminal prev_error      Move to the previous error location.
 :Tarminal errors_to_quickfix

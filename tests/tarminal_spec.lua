@@ -1003,6 +1003,7 @@ describe("tarminal", function()
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
     tarminal.setup({
+      clear_run = false, -- keep `cd` first in the typed line
       park_on_error = false,
       follow_run = "none",
       shell = "sh " .. script,
@@ -1045,6 +1046,7 @@ describe("tarminal", function()
     vim.bo.filetype = "lua"
     tarminal.setup({
       banner = true,
+      clear_run = false,
       park_on_error = false,
       follow_run = "none",
       shell = "sh " .. script,
@@ -1060,6 +1062,32 @@ describe("tarminal", function()
     vim.fn.delete(file)
     assert.is_nil(command:find("\\n\\n", 1, true))
     assert.is_nil(command:find("\\033[H", 1, true))
+  end)
+
+  it("wipes the screen ahead of the cd and the run command by default", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      park_on_error = false,
+      follow_run = "none",
+      shell = "sh " .. script,
+      runners = { lua = "true" },
+    })
+
+    tarminal.run()
+
+    assert.is_true(wait_capture(out, "cd "))
+    local command = table.concat(vim.fn.readfile(out), "\n")
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    -- the wipe runs first, so neither the cd nor the run command survives it
+    local wipe = command:find("\\033[3J", 1, true)
+    assert.is_not_nil(wipe)
+    assert.is_true(wipe < command:find("cd ", 1, true))
   end)
 
   it("exec expands % against the current file", function()
@@ -1237,7 +1265,13 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ banner = true, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({
+      banner = true,
+      clear_run = false,
+      park_on_error = false,
+      follow_run = "none",
+      runners = { lua = "true" },
+    })
 
     local term_buf
     local function banner_row(token)
@@ -1521,6 +1555,58 @@ describe("tarminal", function()
       assert.is_not.equals(term_buf, vim.api.nvim_win_get_buf(win))
     end
     vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
+  it("closes the terminal after a jump when close_on_jump is set", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script, close_on_jump = true })
+
+    vim.cmd("enew") -- a code window for the jump to land in
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.jump_to_error()
+
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+    assert.is_false(vim.api.nvim_win_is_valid(term_win))
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
+  it("leaves the terminal open when close_on_jump finds no location", function()
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ "printf 'no location here\\n'", "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script, close_on_jump = true })
+
+    vim.cmd("enew")
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find("no location here", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.jump_to_error()
+
+    assert.is_true(vim.api.nvim_win_is_valid(term_win))
+    assert.equals(term_buf, vim.api.nvim_win_get_buf(term_win))
     vim.fn.delete(script)
   end)
 

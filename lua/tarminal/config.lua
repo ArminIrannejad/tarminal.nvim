@@ -18,6 +18,7 @@
 ---@field follow_repl tarminal.Follow
 ---@field autosave boolean write the buffer before a run; false uses disk
 ---@field park_on_error boolean highlight errors and park on the first
+---@field close_on_jump boolean close the terminal after jump_to_error lands
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a time binary exists
 ---@field banner boolean print a RUN[n] banner before each run
@@ -64,10 +65,11 @@ local defaults = {
   follow_repl = "none",
   autosave = true,
   park_on_error = true,
+  close_on_jump = false,
   cell_marker = "# COMMAND ----------",
   time_runs = false,
   banner = false,
-  clear_run = false,
+  clear_run = true,
   shell_integration = true,
   runners = {
     python = "python",
