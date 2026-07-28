@@ -8,12 +8,13 @@ local M = {}
 
 ---@return integer
 local function char_end_col(line, col)
-  if col > #line then
+  if col >= #line then
     return #line
   end
   return col + vim.str_utf_end(line, col)
 end
 
+---@return string|nil nil when the buffer has no selection to read
 local function get_visual_selection(visual_mode)
   visual_mode = visual_mode or vim.fn.mode()
   if visual_mode == "v" or visual_mode == "V" or visual_mode == "\22" then
@@ -24,6 +25,11 @@ local function get_visual_selection(visual_mode)
   local p2 = vim.fn.getpos("'>")
   local line_start, col_start = p1[2], p1[3]
   local line_end, col_end = p2[2], p2[3]
+
+  -- '< / '> are unset until the buffer has been in visual mode once
+  if line_start == 0 or line_end == 0 then
+    return nil
+  end
 
   if line_start > line_end or (line_start == line_end and col_start > col_end) then
     line_start, line_end, col_start, col_end = line_end, line_start, col_end, col_start
@@ -148,6 +154,10 @@ function M.send_selection(command_opts)
     text = get_line_range(command_opts.line1, command_opts.line2)
   else
     text = get_visual_selection()
+  end
+  if not text then
+    vim.notify("No visual selection to send", vim.log.levels.WARN)
+    return
   end
   local repl_buf, repl_win = get_or_start_repl(vim.bo.filetype)
   if not repl_buf then
