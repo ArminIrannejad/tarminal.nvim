@@ -271,6 +271,31 @@ describe("tarminal", function()
     assert.equals("A\nB", get_selection("\22"))
   end)
 
+  it("reads no selection from a buffer that has never been in visual mode", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefgh" })
+    vim.fn.setpos("'<", { 0, 0, 0, 0 })
+    vim.fn.setpos("'>", { 0, 0, 0, 0 })
+    assert.is_nil(repl.get_visual_selection("v"))
+  end)
+
+  it("warns instead of erroring when send_selection has no selection to send", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)" })
+    vim.bo.filetype = "lua"
+    vim.fn.setpos("'<", { 0, 0, 0, 0 })
+    vim.fn.setpos("'>", { 0, 0, 0, 0 })
+
+    local warned
+    local notify = vim.notify
+    vim.notify = function(msg, level)
+      warned = warned or (level == vim.log.levels.WARN and msg)
+    end
+    local ok, err = pcall(tarminal.send_selection)
+    vim.notify = notify
+
+    assert.is_true(ok, tostring(err))
+    assert.equals("No visual selection to send", warned)
+  end)
+
   it("extracts an explicit line range", function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
     local get_range = repl.get_line_range
