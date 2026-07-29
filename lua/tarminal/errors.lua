@@ -261,10 +261,11 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
   end
 end
 
--- row of the last RUN banner (^===== guards against output quoting it)
+-- row of the last RUN banner below `min_row` (^===== guards against output
+-- quoting it)
 ---@return integer|nil row
-local function find_banner_row(lines, banner_token)
-  for i = #lines, 1, -1 do
+local function find_banner_row(lines, banner_token, min_row)
+  for i = #lines, (min_row or 0) + 1, -1 do
     if lines[i]:match("^=====") and lines[i]:find(banner_token, 1, true) then
       return i
     end
@@ -272,7 +273,7 @@ local function find_banner_row(lines, banner_token)
 end
 
 ---@param banner_token string|nil marker printed before the output
----@param start_row integer|nil row output starts after, when bannerless
+---@param start_row integer|nil row the run's output starts after
 ---@param scan_errors boolean
 local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
   if state._watch_timer then
@@ -341,7 +342,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
       local banner_row = start_row
       if banner_token then
-        banner_row = find_banner_row(lines, banner_token)
+        banner_row = find_banner_row(lines, banner_token, start_row)
         if not banner_row then
           return
         end
@@ -431,13 +432,14 @@ function M.errors_to_quickfix()
 
   local start_row = 1
   local banner = vim.b[term_buf].run_banner
+  local run_start = vim.b[term_buf].run_start_row
   if banner then
-    local banner_row = find_banner_row(lines, banner)
+    local banner_row = find_banner_row(lines, banner, run_start)
     if banner_row then
       start_row = banner_row + 1
     end
-  elseif vim.b[term_buf].run_start_row then
-    start_row = vim.b[term_buf].run_start_row + 1
+  elseif run_start then
+    start_row = run_start + 1
   end
 
   local items = {}

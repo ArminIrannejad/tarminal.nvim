@@ -6,22 +6,25 @@ describe("tarminal", function()
   local run = require("tarminal.run")
   local term = require("tarminal.term")
 
-  -- Wait until run `id`'s banner is printed and the shell has taken the
+  -- rows of the RUN banners printed in `term_buf`, in buffer order
+  local function banner_rows(term_buf)
+    local rows = {}
+    for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+      if l:match("^=====") and l:find("RUN", 1, true) then
+        rows[#rows + 1] = row
+      end
+    end
+    return rows
+  end
+
+  -- Wait until `n` banners are printed and the shell has taken the
   -- foreground back: only then will a follow-up run() not be refused by
   -- the busy guard (on slow CI the previous command is still running
   -- when two runs are issued back-to-back).
-  local function wait_run_finished(term_buf, id)
-    local token = ("RUN[%d]"):format(id)
+  local function wait_run_finished(term_buf, n)
     local term_busy = platform.term_busy
     return vim.wait(8000, function()
-      local seen = false
-      for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
-        if l:find(token, 1, true) then
-          seen = true
-          break
-        end
-      end
-      return seen and not term_busy(term_buf)
+      return #banner_rows(term_buf) >= n and not term_busy(term_buf)
     end, 50)
   end
 
@@ -818,7 +821,7 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
+    assert.is_true(wait_run_finished(term_buf, 1))
 
     -- a leftover highlight from a previous run, sitting on a line the
     -- terminal will rewrite in place
@@ -870,7 +873,7 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_win)
-    assert.is_true(wait_run_finished(vim.api.nvim_win_get_buf(term_win), tarminal._run_id))
+    assert.is_true(wait_run_finished(vim.api.nvim_win_get_buf(term_win), 1))
     vim.api.nvim_set_current_win(term_win)
     tarminal.run()
 
@@ -1080,7 +1083,7 @@ describe("tarminal", function()
 
     tarminal.run()
 
-    assert.is_true(wait_capture(out, "RUN["))
+    assert.is_true(wait_capture(out, "RUN"))
     local command = table.concat(vim.fn.readfile(out), "\n")
     vim.fn.delete(out)
     vim.fn.delete(script)
@@ -1299,38 +1302,29 @@ describe("tarminal", function()
     })
 
     local term_buf
-    local function banner_row(token)
-      for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
-        if l:match("^=====") and l:find(token, 1, true) then
-          return row
-        end
-      end
-    end
 
     tarminal.run()
-    local first = ("RUN[%d]"):format(tarminal._run_id)
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.bo[buf].filetype == "tarminal" then
         term_buf = buf
       end
     end
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
-    assert.is_not_nil(banner_row(first))
+    assert.is_true(wait_run_finished(term_buf, 1))
+    local first = banner_rows(term_buf)[1]
 
     tarminal.run()
-    local second = ("RUN[%d]"):format(tarminal._run_id)
     assert.is_true(vim.wait(4000, function()
-      return banner_row(second) ~= nil
+      return #banner_rows(term_buf) == 2
     end, 50))
     -- The first run remains in the buffer while the window is scrolled to
     -- the second banner; no terminal output is needed to pad the viewport.
-    assert.is_not_nil(banner_row(first))
+    assert.equals(first, banner_rows(term_buf)[1])
     local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
     assert.is_true(vim.wait(4000, function()
       return vim.api.nvim_win_call(term_win, function()
-        return vim.fn.winsaveview().topline == banner_row(second)
+        return vim.fn.winsaveview().topline == banner_rows(term_buf)[2]
       end)
     end, 50))
     vim.fn.delete(file)
@@ -1341,42 +1335,47 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({
+    -- the banner alone cannot tell the two runs apart; each run prints its
+    -- own marker instead
+    local opts = {
       banner = true,
       clear_run = true,
       park_on_error = false,
       follow_run = "none",
-      runners = { lua = "true" },
-    })
+      time_runs = false,
+      runners = { lua = "echo tarminal_first" },
+    }
+    tarminal.setup(opts)
 
     local term_buf
-    local function banner_row(token)
-      for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
-        if l:match("^=====") and l:find(token, 1, true) then
-          return row
+    local function printed(marker)
+      for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:find(marker, 1, true) then
+          return true
         end
       end
+      return false
     end
 
     tarminal.run()
-    local first = ("RUN[%d]"):format(tarminal._run_id)
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.bo[buf].filetype == "tarminal" then
         term_buf = buf
       end
     end
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
-    assert.is_not_nil(banner_row(first))
+    assert.is_true(wait_run_finished(term_buf, 1))
+    assert.is_true(printed("tarminal_first"))
 
+    opts.runners.lua = "echo tarminal_second"
+    tarminal.setup(opts)
     tarminal.run()
-    local second = ("RUN[%d]"):format(tarminal._run_id)
     assert.is_true(vim.wait(4000, function()
-      return banner_row(second) ~= nil
+      return printed("tarminal_second")
     end, 50))
     -- the scrollback clear ran ahead of the second banner: the first is gone
     assert.is_true(vim.wait(4000, function()
-      return banner_row(first) == nil
+      return not printed("tarminal_first") and #banner_rows(term_buf) == 1
     end, 50))
     vim.fn.delete(file)
   end)
@@ -1392,7 +1391,6 @@ describe("tarminal", function()
     tarminal.setup({ banner = true, park_on_error = false, follow_run = "insert", runners = { lua = "true" } })
 
     tarminal.run()
-    local token = ("RUN[%d]"):format(tarminal._run_id)
 
     local term_buf
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -1401,21 +1399,13 @@ describe("tarminal", function()
       end
     end
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, tarminal._run_id))
-
-    local function banner_row()
-      for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
-        if l:match("^=====") and l:find(token, 1, true) then
-          return row
-        end
-      end
-    end
+    assert.is_true(wait_run_finished(term_buf, 1))
 
     local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
     assert.is_true(vim.wait(4000, function()
       return vim.api.nvim_win_call(term_win, function()
-        return vim.fn.winsaveview().topline == banner_row()
+        return vim.fn.winsaveview().topline == banner_rows(term_buf)[1]
       end)
     end, 50))
     vim.cmd("stopinsert")
