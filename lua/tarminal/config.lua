@@ -21,7 +21,7 @@
 ---@field close_on_jump boolean close the terminal after jump_to_error lands
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a time binary exists
----@field banner boolean print a RUN[n] banner before each run
+---@field banner boolean print a RUN banner before each run
 ---@field clear_run boolean wipe the terminal + scrollback before each run (not scrollable)
 ---@field shell_integration boolean emit + track cwd via OSC 7 in the spawned shell
 ---@field runners table<string, string|tarminal.Runner> filetype -> run command

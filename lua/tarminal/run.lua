@@ -68,24 +68,24 @@ local function execute_in_shell(cmd, dir)
   state._run_id = (state._run_id or 0) + 1
 
   local banner, start_row, full
+  -- the banner is not unique per run, so the pre-send content row keeps a
+  -- stale banner from an earlier run out of the search
+  start_row = last_content_row(term_buf)
   if config.opts.banner then
-    banner = ("RUN[%d]"):format(state._run_id)
+    banner = "RUN"
 
     full = table.concat({
       "cd " .. sh_quote(dir),
-      "printf '\\n===== RUN[%d]: %s =====\\n' " .. state._run_id .. " \"$(date '+%H:%M:%S')\"",
+      "printf '\\n===== RUN: %s =====\\n' \"$(date '+%H:%M:%S')\"",
       cmd,
     }, " && ")
   else
-    start_row = last_content_row(term_buf)
     full = "cd " .. sh_quote(dir) .. " && " .. cmd
   end
 
   if config.opts.clear_run then
     full = term.CLEAR_SEQ .. " && " .. full
-    if start_row then
-      start_row = 0
-    end
+    start_row = 0
   end
 
   if banner or config.opts.park_on_error then

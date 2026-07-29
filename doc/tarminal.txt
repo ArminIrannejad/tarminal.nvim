@@ -49,7 +49,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       close_on_jump = false,    -- close the terminal once jump_to_error lands
       cell_marker = "# COMMAND ----------",
       time_runs = false,
-      banner = false,           -- "===== RUN[n]: <time> =====" line before each run
+      banner = false,           -- "===== RUN: <time> =====" line before each run
       clear_run = true,         -- wipe the terminal + scrollback before each run
       autosave = true,          -- write the buffer before a run; false runs from disk
       shell_integration = true, -- track the shell's cwd via OSC 7
@@ -114,7 +114,7 @@ it, and earlier output is not scrollable.
 
 Set `clear_run = false` to keep the history instead — a run then prints
 nothing extra and its output simply appends at the prompt. With
-`banner = true` tarminal prefixes each run with a `===== RUN[n]: <time> =====`
+`banner = true` tarminal prefixes each run with a `===== RUN: <time> =====`
 line and scrolls the Neovim window to it, so the runs kept in the scrollable
 buffer stay told apart. The two compose: banners survive a cleared run, they
 just have nothing above them. Error highlighting and quickfix collection

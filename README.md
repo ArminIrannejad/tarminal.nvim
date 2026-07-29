@@ -108,7 +108,7 @@ require("tarminal").setup({
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = false,                    -- time the run (for compiled files: the binary)
-  banner = false,                       -- print "===== RUN[n] =====" before each run
+  banner = false,                       -- print "===== RUN =====" before each run
   clear_run = true,                     -- wipe the terminal + scrollback before each run
   shell_integration = true,             -- track the shell's cwd via OSC 7
   quickfix = {
