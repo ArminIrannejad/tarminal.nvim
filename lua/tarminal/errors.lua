@@ -236,6 +236,12 @@ function M.jump_to_error()
   vim.bo[buf].buflisted = true
   local ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
   if not ok then
+    -- a winfixbuf window refuses a new buffer; split off that one
+    vim.cmd("aboveleft split")
+    win = vim.api.nvim_get_current_win()
+    ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
+  end
+  if not ok then
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
