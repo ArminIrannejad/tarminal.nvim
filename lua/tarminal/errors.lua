@@ -166,6 +166,19 @@ local function scan_logical_at(lines, row, width, term_buf)
   return first, last, file, lnum, col, s, e, sev
 end
 
+-- panels that stay panels: taking one over would destroy what it is showing
+local KEEP = { terminal = true, quickfix = true, help = true, prompt = true }
+
+-- an oil/dirvish-style window is still a file window; reuse it rather than
+-- splitting a third window in
+local function reusable(win, tab)
+  return win ~= 0
+    and vim.api.nvim_win_is_valid(win)
+    and vim.api.nvim_win_get_tabpage(win) == tab
+    and vim.api.nvim_win_get_config(win).relative == ""
+    and not KEEP[vim.bo[vim.api.nvim_win_get_buf(win)].buftype]
+end
+
 ---@return integer|nil win
 local function pick_code_win()
   local wins = {}
@@ -175,13 +188,14 @@ local function pick_code_win()
   wins[#wins + 1] = vim.fn.win_getid(vim.fn.winnr("#"))
   vim.list_extend(wins, vim.api.nvim_tabpage_list_wins(0))
   local tab = vim.api.nvim_get_current_tabpage()
+  -- a real file window first, then any reusable one
   for _, win in ipairs(wins) do
-    if
-      win ~= 0
-      and vim.api.nvim_win_is_valid(win)
-      and vim.api.nvim_win_get_tabpage(win) == tab
-      and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == ""
-    then
+    if reusable(win, tab) and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == "" then
+      return win
+    end
+  end
+  for _, win in ipairs(wins) do
+    if reusable(win, tab) then
       return win
     end
   end

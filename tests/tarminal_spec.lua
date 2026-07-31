@@ -1625,6 +1625,71 @@ describe("tarminal", function()
     vim.fn.delete(script)
   end)
 
+  it("reuses a non-file window instead of splitting a third one in", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script })
+
+    -- an oil-style window: the only code window, and not a plain file buffer
+    vim.cmd("enew")
+    vim.cmd("wincmd o")
+    vim.bo.buftype = "acwrite"
+    local code_win = vim.api.nvim_get_current_win()
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.jump_to_error()
+
+    assert.equals(code_win, vim.api.nvim_get_current_win())
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+    assert.equals(2, #vim.api.nvim_tabpage_list_wins(0))
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
+  it("splits rather than taking over a quickfix window", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script })
+
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+    vim.cmd("wincmd o") -- terminal + quickfix are the only windows
+    vim.fn.setqflist({}, " ", { items = { { filename = file, lnum = 1 } } })
+    vim.cmd("botright copen")
+    local qf_win = vim.api.nvim_get_current_win()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_set_current_win(term_win)
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.jump_to_error()
+
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.is_not.equals(qf_win, vim.api.nvim_get_current_win())
+    assert.equals("quickfix", vim.bo[vim.api.nvim_win_get_buf(qf_win)].buftype)
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
   it("keeps the last run when a later run has no configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
