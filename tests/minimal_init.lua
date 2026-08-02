@@ -15,6 +15,8 @@ vim.opt.runtimepath = vim.tbl_filter(function(path)
 end, vim.api.nvim_list_runtime_paths())
 vim.opt.runtimepath:prepend(root)
 vim.opt.runtimepath:prepend(plenary)
+-- so the spec files can require("tests.helpers")
+package.path = root .. "/?.lua;" .. package.path
 vim.opt.swapfile = false
 vim.opt.shadafile = "NONE"
 -- keep long temp paths on one terminal row so location lines don't wrap
