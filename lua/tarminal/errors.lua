@@ -1,4 +1,4 @@
---- Error parsing, highlighting, run-output watching, and navigation.
+--- Error parsing highlighting run output watching and navigation
 
 local config = require("tarminal.config")
 local platform = require("tarminal.platform")
@@ -76,7 +76,7 @@ local function match_patterns(line, term_buf)
   for _, pat in ipairs(config.opts.error_patterns) do
     local init = 1
     while true do
-      -- caps[1..2] = match bounds; capture N = caps[2+N]
+      -- caps[1..2] is the match bounds and caps[2+N] is capture N
       local caps = { line:find(pat.pattern, init) }
       local s, e = caps[1], caps[2]
       if not s then
@@ -166,11 +166,11 @@ local function scan_logical_at(lines, row, width, term_buf)
   return first, last, file, lnum, col, s, e, sev
 end
 
--- panels that stay panels: taking one over would destroy what it is showing
+-- panels that stay panels because taking one over destroys what it shows
 local KEEP = { terminal = true, quickfix = true, help = true, prompt = true }
 
--- an oil/dirvish-style window is still a file window; reuse it rather than
--- splitting a third window in
+-- an oil/dirvish-style window is still a file window
+-- reuse it rather than splitting a third window in
 local function reusable(win, tab)
   return win ~= 0
     and vim.api.nvim_win_is_valid(win)
@@ -188,7 +188,7 @@ local function pick_code_win()
   wins[#wins + 1] = vim.fn.win_getid(vim.fn.winnr("#"))
   vim.list_extend(wins, vim.api.nvim_tabpage_list_wins(0))
   local tab = vim.api.nvim_get_current_tabpage()
-  -- a real file window first, then any reusable one
+  -- a real file window first then any reusable one
   for _, win in ipairs(wins) do
     if reusable(win, tab) and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == "" then
       return win
@@ -201,7 +201,8 @@ local function pick_code_win()
   end
 end
 
--- only tarminal's own terminals (ft "tarminal"); never a plain :terminal
+-- only tarminal's own terminals with ft "tarminal"
+-- never a plain :terminal
 ---@return integer|nil term_buf
 local function current_term_buf()
   local buf = vim.api.nvim_get_current_buf()
@@ -236,7 +237,7 @@ function M.jump_to_error()
   vim.bo[buf].buflisted = true
   local ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
   if not ok then
-    -- a winfixbuf window refuses a new buffer; split off that one
+    -- a winfixbuf window refuses a new buffer so split off that one
     vim.cmd("aboveleft split")
     win = vim.api.nvim_get_current_win()
     ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
@@ -245,7 +246,7 @@ function M.jump_to_error()
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
-  -- no line number -> line 1; linkers emit line 0 — clamp both ends
+  -- clamp both ends for a missing line number and the 0 linkers emit
   lnum = math.min(math.max(lnum or 1, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
@@ -283,8 +284,8 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
   end
 end
 
--- row of the last RUN banner below `min_row` (^===== guards against output
--- quoting it)
+-- row of the last RUN banner below `min_row`
+-- ^===== guards against output quoting it
 ---@return integer|nil row
 local function find_banner_row(lines, banner_token, min_row)
   for i = #lines, (min_row or 0) + 1, -1 do
@@ -469,7 +470,7 @@ function M.errors_to_quickfix()
   local items = {}
   local i = start_row
   while i <= #lines do
-    -- scanned, so a width-filling line can't swallow the error under it
+    -- scanned so a width-filling line can't swallow the error under it
     local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf)
     if file and sev >= config.opts.error_threshold then
       items[#items + 1] = {

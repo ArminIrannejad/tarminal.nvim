@@ -1,4 +1,4 @@
---- Shell terminal lifecycle and the run/exec pipeline.
+--- Shell terminal lifecycle and the run/exec pipeline
 
 local config = require("tarminal.config")
 local errors = require("tarminal.errors")
@@ -57,7 +57,7 @@ local function execute_in_shell(cmd, dir)
     vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
     return
   end
-  -- only on a shell known idle, else ^C could kill a live command
+  -- only on a shell known idle or ^C could kill a live command
   local cancel_pending = busy == false
 
   local term_buf, term_win = get_or_create_shell_term()
@@ -71,8 +71,8 @@ local function execute_in_shell(cmd, dir)
   state._run_id = (state._run_id or 0) + 1
 
   local banner, start_row, full
-  -- the banner is not unique per run, so the pre-send content row keeps a
-  -- stale banner from an earlier run out of the search
+  -- the banner is not unique per run so the pre-send content row keeps
+  -- a stale banner from an earlier run out of the search
   start_row = last_content_row(term_buf)
   if config.opts.banner then
     banner = "RUN"
@@ -191,7 +191,7 @@ function M.run()
       vim.notify("Nothing to run from here", vim.log.levels.WARN)
       return
     end
-    -- re-run from disk: save the source if edited
+    -- re-run from disk so save the source if edited
     local src = vim.fn.bufnr(ctx.file)
     if src ~= -1 and not update_buffer(src) then
       return
@@ -211,8 +211,8 @@ function M.run()
   execute_in_shell(runner_cmd, ctx.dir)
 end
 
----@param arg string|table|nil command, :Tarminal callback data, or nil
----@param verbatim boolean|nil run `arg` as given, skipping cmdline-special expansion
+---@param arg string|table|nil command or :Tarminal callback data or nil
+---@param verbatim boolean|nil run `arg` as given with no cmdline-special expansion
 function M.exec(arg, verbatim)
   local input
   if type(arg) == "string" then

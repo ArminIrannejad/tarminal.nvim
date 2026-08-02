@@ -1,4 +1,4 @@
---- Shared helpers and platform constants.
+--- Shared helpers and platform constants
 
 local uv = vim.uv
 
@@ -11,7 +11,7 @@ function M.get_job_id(buf)
   return vim.b[buf].terminal_job_id
 end
 
--- POSIX quoting for the spawned shell, regardless of &shell
+-- POSIX quoting for the spawned shell regardless of &shell
 function M.sh_quote(s)
   return "'" .. s:gsub("'", [['\'']]) .. "'"
 end

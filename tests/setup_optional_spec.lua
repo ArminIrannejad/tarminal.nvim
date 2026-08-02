@@ -1,4 +1,4 @@
--- Runs in its own nvim, so `require` here is the first load of the module.
+-- runs in its own nvim so `require` here is the first load of the module
 describe("tarminal without setup()", function()
   require("tarminal")
 

@@ -1,14 +1,14 @@
---- Configuration: types, defaults, and the active options table.
+--- Config types and the active options table
 
 ---@alias tarminal.Follow
 ---| '"none"'   # stay in the code window
----| '"focus"'  # terminal window, normal mode
----| '"insert"' # terminal window, terminal-mode
+---| '"focus"'  # terminal window in normal mode
+---| '"insert"' # terminal window in insert mode
 
 ---@alias tarminal.SplitPosition
 ---| '"auto"'   # follow 'splitbelow'
----| '"bottom"' # bottom, always
----| '"top"'    # top, always
+---| '"bottom"' # always bottom
+---| '"top"'    # always top
 
 ---@class tarminal.Config
 ---@field split_height integer
@@ -16,7 +16,7 @@
 ---@field shell string
 ---@field follow_run tarminal.Follow
 ---@field follow_repl tarminal.Follow
----@field autosave boolean write the buffer before a run; false uses disk
+---@field autosave boolean write the buffer before a run else use disk
 ---@field park_on_error boolean highlight errors and park on the first
 ---@field close_on_jump boolean close the terminal after jump_to_error lands
 ---@field cell_marker string line that delimits REPL cells
@@ -27,8 +27,8 @@
 ---@field runners table<string, string|tarminal.Runner> filetype -> run command
 ---@field compilers string[] program names built with `-o` then run
 ---@field repls table<string, string|tarminal.Repl> filetype -> REPL command
----@field error_patterns tarminal.ErrorPattern[] error formats, tried in order
----@field error_threshold integer min severity to park/step/collect (0 note, 1 warn, 2 error)
+---@field error_patterns tarminal.ErrorPattern[] error formats tried in order
+---@field error_threshold integer min severity to park/step/collect (0 note 1 warn 2 error)
 ---@field quickfix tarminal.Quickfix
 
 ---@class tarminal.Quickfix
@@ -40,12 +40,12 @@
 ---@field file integer capture index of the file
 ---@field lnum integer|nil capture index of the line
 ---@field col integer|nil capture index of the column
----@field type integer|string|nil capture index of a severity word, or a fixed severity
----@field resolve boolean|nil default true: file must exist on disk; false trusts the path
+---@field type integer|string|nil capture index of a severity word or a fixed severity
+---@field resolve boolean|nil default true needs the file on disk while false trusts it
 
 ---@class tarminal.Runner
 ---@field cmd string run command
----@field run_binary boolean|nil true: build with `-o` then run the binary
+---@field run_binary boolean|nil true builds with `-o` then runs the binary
 ---@field args string|nil flags appended after the file
 
 ---@class tarminal.Repl
@@ -54,7 +54,8 @@
 ---@field block_open string|nil marker opening a multi-line block (ghci `:{`)
 ---@field block_close string|nil marker closing it (ghci `:}`)
 
--- path chars: no whitespace/colon/brackets/quotes (spaces/parens use the fallback)
+-- path chars with no whitespace colon brackets or quotes
+-- spaces and parens go through the fallback parser
 local PATH = "([^%s:%(%)%[%]<>'\"]+)"
 
 local defaults = {
@@ -83,7 +84,8 @@ local defaults = {
     rust = "rustc",
     odin = { cmd = "odin run", args = "-file" },
   },
-  -- only `cmd <src> -o <out>` compilers; others need a run_binary runner
+  -- only `cmd <src> -o <out>` compilers
+  -- others need a run_binary runner
   compilers = {
     "cc",
     "gcc",
@@ -108,7 +110,8 @@ local defaults = {
     haskell = { cmd = "ghci", bracketed_paste = false, block_open = ":{", block_close = ":}" },
     ocaml = { cmd = "ocaml", bracketed_paste = false },
   },
-  -- tried in order; add your own for tools these miss
+  -- tried in order
+  -- add your own for tools these miss
   error_patterns = {
     { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
     { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },

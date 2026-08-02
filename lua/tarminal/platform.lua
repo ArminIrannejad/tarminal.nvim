@@ -1,4 +1,4 @@
---- Per-OS probes: shell cwd, busy state, and child detection.
+--- Per-OS probes for shell cwd busy state and child detection
 
 local util = require("tarminal.util")
 
