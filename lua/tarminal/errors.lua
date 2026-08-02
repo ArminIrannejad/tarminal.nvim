@@ -257,6 +257,8 @@ end
 
 local WATCH_INTERVAL = 200
 local WATCH_TIMEOUT = 30000
+-- let the output settle before calling a run done
+local QUIET_GRACE = 1000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
@@ -350,7 +352,9 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       if tick == last_tick then
         elapsed = elapsed + WATCH_INTERVAL
         local busy = platform.term_busy(term_buf)
-        if (seen and busy == false) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
+        -- a live child means output may still be coming
+        local settled = busy == false and elapsed >= QUIET_GRACE and platform.shell_has_child(term_buf) ~= true
+        if (seen and settled) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
           flush_pin()
           stop()
         end
