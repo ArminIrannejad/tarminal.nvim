@@ -6,7 +6,7 @@ describe("tarminal", function()
   local run = require("tarminal.run")
   local term = require("tarminal.term")
 
-  -- rows of the RUN banners printed in `term_buf`, in buffer order
+  -- rows of the RUN banners printed in `term_buf` in buffer order
   local function banner_rows(term_buf)
     local rows = {}
     for row, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
@@ -17,10 +17,10 @@ describe("tarminal", function()
     return rows
   end
 
-  -- Wait until `n` banners are printed and the shell has taken the
-  -- foreground back: only then will a follow-up run() not be refused by
-  -- the busy guard (on slow CI the previous command is still running
-  -- when two runs are issued back-to-back).
+  -- wait until `n` banners are printed and the shell has the foreground
+  -- back so a follow-up run() is not refused by the busy guard
+  -- on slow CI the previous command still runs when two runs are issued
+  -- back to back
   local function wait_run_finished(term_buf, n)
     local term_busy = platform.term_busy
     return vim.wait(8000, function()
@@ -38,9 +38,10 @@ describe("tarminal", function()
     tarminal.setup()
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "terminal" then
-        -- Force-deleting a terminal buffer while its job is alive with
+        -- force-deleting a terminal buffer while its job is alive with
         -- output in flight wedges the next terminal's refresh into a busy
-        -- loop (nvim 0.12.4); stop the job and wait for it to exit first.
+        -- loop on nvim 0.12.4
+        -- stop the job and wait for it to exit first
         local job = vim.b[buf].terminal_job_id
         if job then
           pcall(vim.fn.jobstop, job)
@@ -108,10 +109,10 @@ describe("tarminal", function()
 
     if vim.fn.executable("time") == 1 then
       assert.equals("time python '/tmp/example.py'", build(py))
-      -- for a compile chain, only the produced binary is timed
+      -- for a compile chain only the produced binary is timed
       assert.equals("cc '/tmp/example.c' -o 'example' && time ./'example'", build(c))
     else
-      -- no binary: the prefix is skipped so any POSIX shell can run this
+      -- no binary so the prefix is skipped and any POSIX shell can run this
       assert.equals("python '/tmp/example.py'", build(py))
       assert.equals("cc '/tmp/example.c' -o 'example' && ./'example'", build(c))
     end
@@ -159,7 +160,7 @@ describe("tarminal", function()
   it("appends a runner's args after the file", function()
     tarminal.setup({ time_runs = false })
     local build = run.build_runner_command
-    -- the bundled odin runner: `odin run <file> -file`
+    -- the bundled odin runner is `odin run <file> -file`
     local ctx = { file = "/tmp/example.odin", stem = "example", dir = "/tmp", ft = "odin" }
     assert.equals("odin run '/tmp/example.odin' -file", build(ctx))
   end)
@@ -265,8 +266,8 @@ describe("tarminal", function()
 
   it("cuts a blockwise selection at screen columns across tab widths", function()
     vim.bo.tabstop = 8
-    -- A and B both sit at screen column 9, but at different byte columns
-    -- (2 vs 9); a byte-column block would pull "2345678B" from the second row
+    -- A and B both sit at screen column 9 but at different byte columns
+    -- a byte-column block would pull "2345678B" from the second row
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "\tA", "12345678B" })
     vim.fn.setpos("'<", { 0, 1, 2, 0 }) -- A, byte col 2, screen col 9
     vim.fn.setpos("'>", { 0, 2, 9, 0 }) -- B, byte col 9, screen col 9
@@ -344,11 +345,11 @@ describe("tarminal", function()
 
   it("extracts the cwd path from macOS lsof -Fn output", function()
     local parse_lsof_cwd = platform.parse_lsof_cwd
-    -- lsof -a -p <pid> -d cwd -Fn emits the pid, the fd, then the n<path> line
+    -- lsof -a -p <pid> -d cwd -Fn emits the pid then the fd then the n<path> line
     assert.equals("/Users/armin/project", parse_lsof_cwd("p12345\nfcwd\nn/Users/armin/project\n"))
     -- a path containing spaces must survive intact
     assert.equals("/Users/a b/proj", parse_lsof_cwd("p1\nfcwd\nn/Users/a b/proj\n"))
-    -- no n-line (e.g. permission denied) -> nil, so term_cwd falls back
+    -- no n-line such as permission denied gives nil so term_cwd falls back
     assert.is_nil(parse_lsof_cwd("p12345\n"))
   end)
 
@@ -438,7 +439,7 @@ describe("tarminal", function()
     assert.equals(file, parsed_file)
     assert.equals(1, line)
     assert.equals(7, col)
-    -- the highlight span starts at the path, past the wrapping "("
+    -- the highlight span starts at the path past the wrapping "("
     assert.equals(output:find(file, 1, true), span_start)
   end)
 
@@ -457,7 +458,7 @@ describe("tarminal", function()
     assert.equals(file, parsed_file)
     assert.equals(123, line)
     assert.is_nil(col)
-    -- the highlight span starts at the path, past the glued "run("
+    -- the highlight span starts at the path past the glued "run("
     assert.equals(output:find(file, 1, true), span_start)
   end)
 
@@ -492,7 +493,7 @@ describe("tarminal", function()
   end)
 
   it("keeps severity when the fallback parser handles a path with spaces", function()
-    -- the space defeats the built-in patterns, forcing the fallback parser
+    -- the space defeats the built-in patterns and forces the fallback parser
     local file = vim.fn.tempname() .. " sp.c"
     vim.fn.writefile({ "int main() {}" }, file)
     local parse = errors.parse_error_line
@@ -559,14 +560,14 @@ describe("tarminal", function()
     cmd, bracketed = spec("ocaml")
     assert.equals("ocaml", cmd)
     assert.is_false(bracketed)
-    -- ghci's line editor mishandles bracketed paste, so the default sends raw
+    -- ghci's line editor mishandles bracketed paste so the default sends raw
     cmd, bracketed = spec("haskell")
     assert.equals("ghci", cmd)
     assert.is_false(bracketed)
   end)
 
   it("wraps REPL sends in bracketed paste by default", function()
-    -- a "REPL" that copies its stdin to a file, so the exact bytes the REPL
+    -- a "REPL" that copies its stdin to a file so the exact bytes it
     -- receives can be inspected
     local out = vim.fn.tempname()
     tarminal.setup({
@@ -633,7 +634,7 @@ describe("tarminal", function()
     local content = table.concat(vim.fn.readfile(out), "\n")
     vim.fn.delete(out)
     assert.is_true(received)
-    -- block markers wrap the selection, no paste escapes
+    -- block markers wrap the selection with no paste escapes
     assert.is_falsy(content:find("\27", 1, true))
     assert.is_truthy(content:find(":{\nprint(1)\nprint(2)\n:}", 1, true))
   end)
@@ -823,7 +824,7 @@ describe("tarminal", function()
     assert.is_not_nil(term_buf)
     assert.is_true(wait_run_finished(term_buf, 1))
 
-    -- a leftover highlight from a previous run, sitting on a line the
+    -- a leftover highlight from a previous run sitting on a line the
     -- terminal will rewrite in place
     local ns = errors.ns
     vim.api.nvim_buf_set_extmark(term_buf, ns, 0, 0, { end_col = 1, hl_group = "TarminalError", strict = false })
@@ -840,8 +841,8 @@ describe("tarminal", function()
     vim.bo.filetype = "lua"
     tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
-    -- unsaved edits in a readonly buffer: update fails, the run must not
-    -- silently execute the stale on-disk version
+    -- unsaved edits in a readonly buffer make update fail and the run
+    -- must not silently execute the stale on-disk version
     vim.api.nvim_buf_set_lines(0, -1, -1, false, { "print('edited')" })
     vim.bo.readonly = true
     local before = tarminal._run_id
@@ -898,7 +899,7 @@ describe("tarminal", function()
     local still_modified = vim.bo[src].modified
     local ran = tarminal._run_id == before + 1
     vim.fn.delete(file)
-    -- the run goes through against the on-disk version, buffer untouched
+    -- the run goes through against the on-disk version with the buffer untouched
     assert.is_true(ran)
     assert.is_true(still_modified)
   end)
@@ -911,7 +912,7 @@ describe("tarminal", function()
     tarminal.setup({ autosave = false, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
     -- the readonly buffer that aborts the run with autosave on is never
-    -- written here, so there is nothing to fail on
+    -- written here so there is nothing to fail on
     vim.api.nvim_buf_set_lines(0, -1, -1, false, { "print('edited')" })
     vim.bo.readonly = true
     local before = tarminal._run_id
@@ -924,18 +925,20 @@ describe("tarminal", function()
   end)
 
   it("refuses to run while the terminal is busy with a command", function()
-    -- foreground-job detection needs a shell with job control (a plain
-    -- POSIX sh runs children in its own process group, where the busy
-    -- guard degrades to a no-op) — pin bash rather than inherit $SHELL
+    -- foreground-job detection needs a shell with job control
+    -- a plain POSIX sh runs children in its own process group where the
+    -- busy guard degrades to a no-op
+    -- so pin bash rather than inherit $SHELL
     local bash = "bash"
     if vim.fn.executable(bash) == 0 then
       return
     end
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
-    -- a runner that keeps the shell's foreground occupied (generously long:
-    -- it must still be running when the second run() is attempted, even on
-    -- a slow CI runner; after_each kills the shell well before it expires)
+    -- a runner that keeps the shell's foreground occupied
+    -- generously long so it still runs when the second run() is attempted
+    -- even on a slow CI runner
+    -- after_each kills the shell well before it expires
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({ "sleep 30" }, script)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
@@ -998,7 +1001,7 @@ describe("tarminal", function()
     assert.is_not_nil(term_buf)
     assert.is_true(wait_run_finished(term_buf, 1))
 
-    -- a half-written command left at the prompt, never entered
+    -- a half-written command left at the prompt and never entered
     term.term_send(term_buf, "echo glued > " .. marker)
     tarminal.run()
     assert.is_true(wait_run_finished(term_buf, 2))
@@ -1048,8 +1051,8 @@ describe("tarminal", function()
 
     tarminal.run()
     assert.is_not_nil(tarminal._watch_timer)
-    -- well under the watcher's silence timeout: only the done marker can
-    -- have stopped it this quickly
+    -- well under the watcher's silence timeout so only the done marker
+    -- can have stopped it this quickly
     local stopped = vim.wait(6000, function()
       return tarminal._watch_timer == nil
     end, 50)
@@ -1091,8 +1094,8 @@ describe("tarminal", function()
   end)
 
   it("sends run commands with a history-suppressing leading space", function()
-    -- a "shell" that copies its stdin to a file, so the exact bytes tarminal
-    -- types at the prompt can be inspected
+    -- a "shell" that copies its stdin to a file so the exact bytes
+    -- tarminal types at the prompt can be inspected
     local out = vim.fn.tempname()
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({ "trap '' INT", "exec cat > " .. out }, script)
@@ -1121,9 +1124,10 @@ describe("tarminal", function()
     assert.equals(" cd '", first_line:sub(1, 5))
   end)
 
-  -- a "shell" that copies its stdin to `out`, so the exact command exec
-  -- sends can be inspected; returns the path of the capture file
-  -- it ignores SIGINT, like the real shell a run sends ^C to
+  -- a "shell" that copies its stdin to `out` so the exact command exec
+  -- sends can be inspected
+  -- returns the path of the capture file
+  -- it ignores SIGINT like the real shell a run sends ^C to
   local function stdin_capture_shell()
     local out = vim.fn.tempname()
     local script = vim.fn.tempname() .. ".sh"
@@ -1183,7 +1187,7 @@ describe("tarminal", function()
     vim.fn.delete(out)
     vim.fn.delete(script)
     vim.fn.delete(file)
-    -- the wipe runs first, so neither the cd nor the run command survives it
+    -- the wipe runs first so neither the cd nor the run command survives it
     local wipe = command:find("\\033[3J", 1, true)
     assert.is_not_nil(wipe)
     assert.is_true(wipe < command:find("cd ", 1, true))
@@ -1196,8 +1200,8 @@ describe("tarminal", function()
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
 
-    -- the shape the :Tarminal command dispatcher passes (raw .args, plus the
-    -- pre-tokenized .fargs)
+    -- the shape the :Tarminal command dispatcher passes with raw .args
+    -- plus the pre-tokenized .fargs
     tarminal.exec({ args = "exec echo %", fargs = { "exec", "echo", "%" } })
 
     local received = wait_capture(out, "echo " .. file)
@@ -1211,8 +1215,8 @@ describe("tarminal", function()
     local out, script = stdin_capture_shell()
     tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
 
-    -- .fargs would collapse the quotes to `echo a  b` (two args, lost
-    -- spacing); .args keeps the literal command
+    -- .fargs would collapse the quotes to `echo a  b` with two args and
+    -- lost spacing while .args keeps the literal command
     tarminal.exec({ args = "exec echo 'a  b'", fargs = { "exec", "echo", "a  b" } })
 
     local received = wait_capture(out, "echo 'a  b'")
@@ -1264,9 +1268,9 @@ describe("tarminal", function()
       end
     end
 
-    -- a bare exec still prompts, pre-filled with the expanded command;
-    -- accepting it must resend verbatim, not re-expand % against the
-    -- terminal buffer (which would send `echo ran <terminal name>`)
+    -- a bare exec still prompts pre-filled with the expanded command
+    -- accepting it must resend verbatim and not re-expand % against the
+    -- terminal buffer which would send `echo ran <terminal name>`
     local seen_default
     local orig = vim.ui.input
     vim.ui.input = function(opts, on_confirm) ---@diagnostic disable-line: duplicate-set-field
@@ -1388,8 +1392,8 @@ describe("tarminal", function()
     assert.is_true(vim.wait(4000, function()
       return #banner_rows(term_buf) == 2
     end, 50))
-    -- The first run remains in the buffer while the window is scrolled to
-    -- the second banner; no terminal output is needed to pad the viewport.
+    -- the first run remains in the buffer while the window is scrolled to
+    -- the second banner with no terminal output padding the viewport
     assert.equals(first, banner_rows(term_buf)[1])
     local find_win_for_buf = term.find_win_for_buf
     local term_win = find_win_for_buf(term_buf)
@@ -1406,8 +1410,8 @@ describe("tarminal", function()
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    -- the banner alone cannot tell the two runs apart; each run prints its
-    -- own marker instead
+    -- the banner alone cannot tell the two runs apart so each run prints
+    -- its own marker instead
     local opts = {
       banner = true,
       clear_run = true,
@@ -1444,16 +1448,16 @@ describe("tarminal", function()
     assert.is_true(vim.wait(4000, function()
       return printed("tarminal_second")
     end, 50))
-    -- the scrollback clear ran ahead of the second banner: the first is gone
+    -- the scrollback clear ran ahead of the second banner so the first is gone
     assert.is_true(vim.wait(4000, function()
       return not printed("tarminal_first") and #banner_rows(term_buf) == 1
     end, 50))
     vim.fn.delete(file)
   end)
 
-  -- Headless nvim never reaches terminal-insert ("t") mode, so this exercises
-  -- the immediate-pin path rather than the deferred flush; it guards that
-  -- insert-follow still lands the banner at the top of the window.
+  -- headless nvim never reaches terminal-insert "t" mode so this exercises
+  -- the immediate-pin path rather than the deferred flush
+  -- it guards that insert-follow still lands the banner at the window top
   it("aligns the banner to the window top in insert-follow", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
@@ -1487,7 +1491,7 @@ describe("tarminal", function()
     vim.fn.setqflist({})
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int a;", "int b;" }, file)
-    -- a script (no prompt or command echo) prints a warning then an error
+    -- a script with no prompt or command echo prints a warning then an error
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({
       ("printf '%%s:1:1: warning: w\\n%%s:2:1: error: e\\n' %s %s"):format(file, file),
@@ -1511,7 +1515,7 @@ describe("tarminal", function()
     local qf = vim.fn.getqflist()
     vim.fn.delete(file)
     vim.fn.delete(script)
-    -- the warning is below threshold; only the error is collected
+    -- the warning is below threshold so only the error is collected
     assert.equals(1, #qf)
     assert.equals(2, qf[1].lnum)
     assert.equals("E", qf[1].type)
@@ -1602,9 +1606,10 @@ describe("tarminal", function()
     local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
     vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
 
-    -- Run a script that prints two error locations instead of an
-    -- interactive shell: no prompt and no command echo, so the terminal
-    -- content is identical whatever sh the machine has (bash, dash, ...).
+    -- run a script that prints two error locations instead of an
+    -- interactive shell
+    -- no prompt and no command echo so the terminal content is identical
+    -- whatever sh the machine has
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({
       ("printf '%%s:1:1: aaa\\n%%s:2:2: bbb\\n' %s %s"):format(file, file),
@@ -1630,8 +1635,8 @@ describe("tarminal", function()
     assert.equals(file, vim.api.nvim_buf_get_name(0))
     assert.same({ 2, 1 }, vim.api.nvim_win_get_cursor(0))
 
-    -- back in the terminal, navigation still works after the jump; start
-    -- from the bottom again rather than assuming the cursor was preserved
+    -- back in the terminal navigation still works after the jump
+    -- start from the bottom rather than assume the cursor was preserved
     vim.api.nvim_set_current_win(term_win)
     vim.api.nvim_win_set_cursor(term_win, { vim.api.nvim_buf_line_count(term_buf), 0 })
     tarminal.prev_error()
@@ -1666,7 +1671,7 @@ describe("tarminal", function()
 
     tarminal.errors_to_quickfix()
 
-    -- the terminal is no longer displayed; the quickfix window took over
+    -- the terminal is no longer displayed and the quickfix window took over
     for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
       assert.is_not.equals(term_buf, vim.api.nvim_win_get_buf(win))
     end
@@ -1733,7 +1738,7 @@ describe("tarminal", function()
     vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
     tarminal.setup({ shell = "sh " .. script })
 
-    -- an oil-style window: the only code window, and not a plain file buffer
+    -- an oil-style window that is the only code window and not a file buffer
     vim.cmd("enew")
     vim.cmd("wincmd o")
     vim.bo.buftype = "acwrite"
@@ -1868,12 +1873,12 @@ describe("tarminal", function()
   end)
 
   it("does not send REPL input to the shell when the REPL fails to start", function()
-    -- the guard reads /proc children; skip where the kernel does not expose it
+    -- the guard reads /proc children so skip where the kernel hides it
     if vim.fn.filereadable("/proc/self/task/" .. vim.fn.getpid() .. "/children") == 0 then
       return
     end
-    -- a real shell so `false` runs and exits, leaving the bare prompt that the
-    -- cell must not be sent to
+    -- a real shell so `false` runs and exits leaving the bare prompt that
+    -- the cell must not be sent to
     tarminal.setup({ follow_repl = "none", shell = "/bin/sh", repls = { lua = "false" } })
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)" })
     vim.bo.filetype = "lua"
@@ -1890,7 +1895,7 @@ describe("tarminal", function()
 
     assert.is_true(ok)
     assert.is_true(errored)
-    -- the failed REPL buffer is torn down, not left to receive shell input
+    -- the failed REPL buffer is torn down and not left to receive shell input
     local repl
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].repl_ft ~= nil then

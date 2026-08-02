@@ -1,4 +1,4 @@
--- The suite runs with --noplugin, so source the command definition by hand.
+-- the suite runs with --noplugin so source the command definition by hand
 describe("the :Tarminal command", function()
   vim.cmd("runtime plugin/tarminal.lua")
 
@@ -19,7 +19,7 @@ describe("the :Tarminal command", function()
   end)
 
   it("completes exec arguments as paths, never as $PATH commands", function()
-    -- "l" matches lua/ here and hundreds of binaries on $PATH; only the path wins
+    -- "l" matches lua/ here and hundreds of binaries on $PATH so only the path wins
     local out = complete("Tarminal exec l")
     assert.is_true(has(out, "lua/"), vim.inspect(out))
     for _, cmd in ipairs({ "ls", "less", "ln" }) do

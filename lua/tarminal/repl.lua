@@ -1,4 +1,4 @@
---- REPL lifecycle, visual-selection capture, and cell sending.
+--- REPL lifecycle visual selection capture and cell sending
 
 local config = require("tarminal.config")
 local platform = require("tarminal.platform")
@@ -40,7 +40,8 @@ local function get_visual_selection(visual_mode)
   end
 
   if visual_mode == "\22" then
-    -- visual block is a screen-column rect but '< '> store byte cols; cut by screen col
+    -- visual block is a screen-column rect but '< '> store byte cols
+    -- so cut by screen col
     local lines = vim.api.nvim_buf_get_lines(0, line_start - 1, line_end, false)
     local c1 = vim.fn.strdisplaywidth(lines[1]:sub(1, col_start - 1)) + 1
     local c2 = vim.fn.strdisplaywidth(lines[#lines]:sub(1, col_end - 1)) + 1
@@ -98,9 +99,9 @@ local function get_or_start_repl(ft)
 
   local buf = term.find_live_terminal("repl_ft", ft)
   if buf then
-    -- REPL exited but the shell lives: relaunch it, else source hits the shell
+    -- REPL exited but the shell lives so relaunch it or source hits the shell
     if repl_cmd and platform.shell_has_child(buf) == false then
-      -- at its prompt, where typed input could swallow the relaunch
+      -- at its prompt where typed input could swallow the relaunch
       term.term_send_command(buf, repl_cmd, true)
       if not platform.wait_for_repl(buf) then
         vim.notify("REPL is not running: " .. repl_cmd, vim.log.levels.ERROR)
@@ -124,7 +125,7 @@ local function get_or_start_repl(ft)
   term.term_cd(buf, dir)
   term.term_send_command(buf, repl_cmd)
   vim.b[buf].repl_ft = ft
-  -- ensure the REPL came up before sending, else source hits the shell
+  -- ensure the REPL came up before sending or source hits the shell
   if not platform.wait_for_repl(buf) then
     vim.notify("REPL failed to start: " .. repl_cmd, vim.log.levels.ERROR)
     vim.api.nvim_buf_delete(buf, { force = true })

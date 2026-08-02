@@ -1,4 +1,4 @@
---- :checkhealth tarminal — verify the per-OS probes and the configured commands.
+--- :checkhealth tarminal verifies the per-OS probes and configured commands
 
 local config = require("tarminal.config")
 local term = require("tarminal.term")
@@ -28,7 +28,7 @@ local function readable(path)
   return true
 end
 
--- the three probes back cwd resolution, the busy guard, and REPL startup
+-- the three probes back cwd resolution the busy guard and REPL startup
 local function check_probes()
   start("Process probes")
   local sysname = util.SYSNAME
