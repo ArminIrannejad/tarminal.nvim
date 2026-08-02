@@ -49,4 +49,14 @@ describe("tarminal platform", function()
     tarminal.setup({ shell_integration = false })
     assert.is_false(tarminal.config.shell_integration)
   end)
+
+  it("extracts the cwd path from macOS lsof -Fn output", function()
+    local parse_lsof_cwd = platform.parse_lsof_cwd
+    -- lsof -a -p <pid> -d cwd -Fn emits the pid then the fd then the n<path> line
+    assert.equals("/Users/armin/project", parse_lsof_cwd("p12345\nfcwd\nn/Users/armin/project\n"))
+    -- a path containing spaces must survive intact
+    assert.equals("/Users/a b/proj", parse_lsof_cwd("p1\nfcwd\nn/Users/a b/proj\n"))
+    -- no n-line such as permission denied gives nil so term_cwd falls back
+    assert.is_nil(parse_lsof_cwd("p12345\n"))
+  end)
 end)
