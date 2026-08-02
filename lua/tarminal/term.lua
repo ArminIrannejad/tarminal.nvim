@@ -122,9 +122,25 @@ local function term_send(buf, text)
   vim.fn.chansend(get_job_id(buf), text)
 end
 
--- leading space keeps it out of shell history (ignorespace)
-local function term_send_command(buf, cmd)
-  term_send(buf, " " .. cmd .. "\n")
+-- ^C drops whatever is typed at the prompt
+local CANCEL_INPUT = "\003"
+-- the tty flushes pending input with the signal, so ours goes after
+local CANCEL_DELAY = 50
+
+---@param cancel_pending boolean|nil drop typed-but-unsent input first
+local function term_send_command(buf, cmd, cancel_pending)
+  -- leading space keeps it out of shell history (ignorespace)
+  local line = " " .. cmd .. "\n"
+  if not cancel_pending then
+    term_send(buf, line)
+    return
+  end
+  term_send(buf, CANCEL_INPUT)
+  vim.defer_fn(function()
+    if vim.api.nvim_buf_is_valid(buf) and is_terminal_alive(buf) then
+      term_send(buf, line)
+    end
+  end, CANCEL_DELAY)
 end
 
 local sh_quote = util.sh_quote

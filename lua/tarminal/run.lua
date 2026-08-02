@@ -50,12 +50,15 @@ local function execute_in_shell(cmd, dir)
   local code_win = vim.api.nvim_get_current_win()
 
   local existing = term.find_live_terminal("is_shell", true)
-  if existing and platform.term_busy(existing, true) then
+  local busy = existing and platform.term_busy(existing, true)
+  if busy then
     term.ensure_window_for_buf(existing)
     vim.api.nvim_set_current_win(code_win)
     vim.notify("Terminal is busy; interrupt the running command first", vim.log.levels.WARN)
     return
   end
+  -- only on a shell known idle, else ^C could kill a live command
+  local cancel_pending = busy == false
 
   local term_buf, term_win = get_or_create_shell_term()
   if not term_buf then
@@ -91,7 +94,7 @@ local function execute_in_shell(cmd, dir)
   if banner or config.opts.park_on_error then
     errors.watch_run_output(term_buf, banner, start_row, config.opts.park_on_error)
   end
-  term.term_send_command(term_buf, full)
+  term.term_send_command(term_buf, full, cancel_pending)
   vim.b[term_buf].term_cwd = dir
   platform.prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner

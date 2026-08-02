@@ -125,6 +125,10 @@ output of that run and nothing else — no `cd`, no run command, no leftovers fr
 the run before. Set `clear_run = false` to keep the history and scroll back
 through it; pair it with `banner = true` to mark where each run starts.
 
+A run is refused while the terminal is busy with a command. When it is idle,
+anything half-typed at the prompt is cancelled with `^C` first, so a line you
+started and walked away from can never be glued onto the run command.
+
 ### Shell integration
 
 When tarminal opens a shell terminal it types a one-line setup snippet at the

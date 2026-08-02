@@ -100,7 +100,8 @@ local function get_or_start_repl(ft)
   if buf then
     -- REPL exited but the shell lives: relaunch it, else source hits the shell
     if repl_cmd and platform.shell_has_child(buf) == false then
-      term.term_send_command(buf, repl_cmd)
+      -- at its prompt, where typed input could swallow the relaunch
+      term.term_send_command(buf, repl_cmd, true)
       if not platform.wait_for_repl(buf) then
         vim.notify("REPL is not running: " .. repl_cmd, vim.log.levels.ERROR)
         return
