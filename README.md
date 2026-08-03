@@ -100,7 +100,7 @@ require("tarminal").setup({
   split_height = 12,                    -- height of the terminal split
   split_position = "auto",              -- "auto", "bottom", or "top"
   shell = vim.env.SHELL or "/bin/bash",
-  follow_run = "none",                  -- "none", "focus", or "insert"
+  follow_run = "focus",                 -- "none", "focus", or "insert"
   follow_repl = "none",
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
@@ -108,7 +108,7 @@ require("tarminal").setup({
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = false,                    -- time the run (for compiled files: the binary)
-  banner = false,                       -- print "===== RUN =====" before each run
+  banner = true,                        -- print "===== RUN =====" before each run
   clear_run = true,                     -- wipe the terminal + scrollback before each run
   shell_integration = true,             -- track the shell's cwd via OSC 7
   quickfix = {
@@ -122,8 +122,10 @@ require("tarminal").setup({
 
 Each run wipes the screen and the scrollback first, so the terminal shows the
 output of that run and nothing else — no `cd`, no run command, no leftovers from
-the run before. Set `clear_run = false` to keep the history and scroll back
-through it; pair it with `banner = true` to mark where each run starts.
+the run before. A `===== RUN: <time> =====` banner heads the output and focus
+moves to the terminal window. Set `clear_run = false` to keep the history and
+scroll back through it, `banner = false` to drop the banner line, and
+`follow_run = "none"` to stay in the code window.
 
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you

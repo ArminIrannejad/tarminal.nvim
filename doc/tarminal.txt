@@ -1,4 +1,4 @@
-*tarminal.txt*       For Neovim >= 0.10        Last change: 2026 July 27
+*tarminal.txt*       For Neovim >= 0.10      Last change: 2026 August 03
 
 ==============================================================================
 Table of Contents                                 *tarminal-table-of-contents*
@@ -43,13 +43,13 @@ Calling the setup function is optional; do it only to override defaults: >lua
       split_height = 12,
       split_position = "auto",  -- "auto" (follow 'splitbelow') | "bottom" | "top"
       shell = vim.env.SHELL or "/bin/bash",
-      follow_run = "none",      -- "none" | "focus" | "insert"
+      follow_run = "focus",     -- "none" | "focus" | "insert"
       follow_repl = "none",
       park_on_error = true,
       close_on_jump = false,    -- close the terminal once jump_to_error lands
       cell_marker = "# COMMAND ----------",
       time_runs = false,
-      banner = false,           -- "===== RUN: <time> =====" line before each run
+      banner = true,            -- "===== RUN: <time> =====" line before each run
       clear_run = true,         -- wipe the terminal + scrollback before each run
       autosave = true,          -- write the buffer before a run; false runs from disk
       shell_integration = true, -- track the shell's cwd via OSC 7
@@ -112,14 +112,16 @@ before each run, so the screen holds that run's output and nothing else: the
 `cd` and the run command tarminal typed are gone along with the run before
 it, and earlier output is not scrollable.
 
-Set `clear_run = false` to keep the history instead — a run then prints
-nothing extra and its output simply appends at the prompt. With
-`banner = true` tarminal prefixes each run with a `===== RUN: <time> =====`
-line and scrolls the Neovim window to it, so the runs kept in the scrollable
-buffer stay told apart. The two compose: banners survive a cleared run, they
-just have nothing above them. Error highlighting and quickfix collection
-track a bannerless run's output just the same; only the view pinning to the
-banner is skipped.
+Set `clear_run = false` to keep the history instead — earlier runs stay in
+the scrollable buffer and a run's output simply appends at the prompt.
+
+With `banner = true` (the default) tarminal prefixes each run with a
+`===== RUN: <time> =====` line and scrolls the Neovim window to it, so the
+runs kept in a scrollable buffer stay told apart. The two compose: banners
+survive a cleared run, they just have nothing above them. Set
+`banner = false` for a run that prints nothing but its own output; error
+highlighting and quickfix collection track a bannerless run just the same,
+only the view pinning to the banner is skipped.
 
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you
@@ -185,7 +187,8 @@ is the last window it is emptied rather than closed.
 
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
-window in normal mode, "insert" moves there and enters terminal-mode.
+window in normal mode, "insert" moves there and enters terminal-mode. A run
+follows to the terminal by default; a REPL send stays put.
 
 With `quickfix = { open = false, close_terminal = false }`,
 errors_to_quickfix only populates the quickfix list and reports how many
