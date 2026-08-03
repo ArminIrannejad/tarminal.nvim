@@ -123,10 +123,13 @@ local function term_send(buf, text)
   vim.fn.chansend(get_job_id(buf), text)
 end
 
--- ^C drops whatever is typed at the prompt
+-- ^C leaves the prompt clear except for input the shell already read
 local CANCEL_INPUT = "\003"
 -- the tty flushes pending input with the signal so ours goes after
 local CANCEL_DELAY = 50
+-- end-of-line then line-kill clears that remainder in band so it cannot glue
+-- itself onto the command
+local KILL_LINE = "\005\021"
 
 ---@param cancel_pending boolean|nil drop typed-but-unsent input first
 local function term_send_command(buf, cmd, cancel_pending)
@@ -139,7 +142,7 @@ local function term_send_command(buf, cmd, cancel_pending)
   term_send(buf, CANCEL_INPUT)
   vim.defer_fn(function()
     if vim.api.nvim_buf_is_valid(buf) and is_terminal_alive(buf) then
-      term_send(buf, line)
+      term_send(buf, KILL_LINE .. line)
     end
   end, CANCEL_DELAY)
 end
