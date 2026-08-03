@@ -469,14 +469,14 @@ function M.errors_to_quickfix()
   local items = {}
   local i = start_row
   while i <= #lines do
-    local logical, _, last = logical_line_at(lines, i, width)
-    local file, lnum, col, _, _, sev = parse_error_line(logical, term_buf)
+    -- scanned, so a width-filling line can't swallow the error under it
+    local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf)
     if file and sev >= config.opts.error_threshold then
       items[#items + 1] = {
         filename = file,
         lnum = lnum or 1,
         col = col or 1,
-        text = vim.trim(logical),
+        text = vim.trim(table.concat(lines, "", first, last)),
         type = ({ [0] = "I", [1] = "W", [2] = "E" })[sev] or "E",
       }
     end
