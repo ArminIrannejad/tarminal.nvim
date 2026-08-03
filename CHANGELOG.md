@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.3.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.2.0...v0.3.0) (2026-08-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* require Neovim 0.10
+* stop timing runs by default
+
+### Features
+
+* add :checkhealth tarminal ([1881f42](https://github.com/ArminIrannejad/tarminal.nvim/commit/1881f42d5814aeee79b64af607291c1f5b16abd8))
+* add clear_run to wipe the terminal before each run ([eb32d41](https://github.com/ArminIrannejad/tarminal.nvim/commit/eb32d417e1d34fa755641d95da205dcbde8a0a8a))
+* add fish shell integration and clear setup noise ([848f6b6](https://github.com/ArminIrannejad/tarminal.nvim/commit/848f6b66b4edf5ca6bf64a772e77c8932d15efe0))
+* clear run default ([a6ae6b1](https://github.com/ArminIrannejad/tarminal.nvim/commit/a6ae6b10f578ff466454e0ed539548199a221d0b))
+* clear the terminal before every run ([2838bc1](https://github.com/ArminIrannejad/tarminal.nvim/commit/2838bc17500a3077e9bd1b0a73876cebc8dfe102))
+* close_on_jump closes the terminal after a jump ([a01ac13](https://github.com/ArminIrannejad/tarminal.nvim/commit/a01ac132e628a2ef2759504ae431a00fef296b03))
+* require Neovim 0.10 ([531e2d8](https://github.com/ArminIrannejad/tarminal.nvim/commit/531e2d8122d5a0576a82abeb3e9c56c59b54b040))
+* stop timing runs by default ([cd245e2](https://github.com/ArminIrannejad/tarminal.nvim/commit/cd245e2e9a75795ec5108d58677fcf4a6ed1ea54))
+
+
+### Bug Fixes
+
+* bound a wrapped line scan so the walk always advances ([54bd331](https://github.com/ArminIrannejad/tarminal.nvim/commit/54bd331f9d694f70283a56868d06346c959a247b))
+* cancel pending prompt input before a run ([bf3d1ed](https://github.com/ArminIrannejad/tarminal.nvim/commit/bf3d1ed223e5f3eb3bb42d18f6218eb5693be709))
+* clear the prompt line before a cancelled run ([d3b1ce4](https://github.com/ArminIrannejad/tarminal.nvim/commit/d3b1ce4f6a2ff951754abea8e40626457d5d7dd1))
+* complete exec with paths only, not $PATH commands ([f37c8ac](https://github.com/ArminIrannejad/tarminal.nvim/commit/f37c8acdcbe0acd1e83bb6769182be15a9556645))
+* complete files and commands for :Tarminal exec ([a3aba9e](https://github.com/ArminIrannejad/tarminal.nvim/commit/a3aba9e8b48a7bc66fcdf2759281bf88855bd7f4))
+* complete files and commands for exec ([19366d9](https://github.com/ArminIrannejad/tarminal.nvim/commit/19366d96fa5f38757f15fdd0c65eed8a78cdd249))
+* drop the run number from the banner ([589bc6e](https://github.com/ArminIrannejad/tarminal.nvim/commit/589bc6e550e320d4d0f1f671327ecaa5b682705c))
+* jump window reuse ([6144751](https://github.com/ArminIrannejad/tarminal.nvim/commit/6144751f9c3220ba70beb9d63c6db613f6b31b3c))
+* keep the watcher alive while the shell has a child ([290a17c](https://github.com/ArminIrannejad/tarminal.nvim/commit/290a17cae59614055bfa6ccc67213e9e00e10721))
+* nil send_selection error ([8317761](https://github.com/ArminIrannejad/tarminal.nvim/commit/83177619463576b94f386974850297542237557a))
+* register highlights and autocmds without setup() ([676bc79](https://github.com/ArminIrannejad/tarminal.nvim/commit/676bc7900a52b7aff6c55867e3e9c2cb32eb1660))
+* reuse an oil-style window for jumps instead of splitting ([94f6c24](https://github.com/ArminIrannejad/tarminal.nvim/commit/94f6c242d50594b7dff58cbc1821cd9cfd0efc7c))
+* run input safety ([75e2687](https://github.com/ArminIrannejad/tarminal.nvim/commit/75e26876b3f94f79dd4fc3090bbb5829751eb7b8))
+* split when a window refuses the jump buffer ([5efda6f](https://github.com/ArminIrannejad/tarminal.nvim/commit/5efda6ffaf20f782145b7dba929eae2fc2e89982))
+* use the wrapped line fallback for quickfix too ([23e2e92](https://github.com/ArminIrannejad/tarminal.nvim/commit/23e2e9281662c52d69405001705bdc874610a635))
+
 ## [0.2.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.1.1...v0.2.0) (2026-07-26)
 
 
