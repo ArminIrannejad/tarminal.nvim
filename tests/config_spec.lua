@@ -28,6 +28,14 @@ describe("tarminal config", function()
     end
   end)
 
+  it("defaults a run to a cleared screen with a banner and the focus", function()
+    tarminal.setup()
+    assert.equals("focus", tarminal.config.follow_run)
+    assert.is_true(tarminal.config.banner)
+    assert.is_true(tarminal.config.clear_run)
+    assert.is_false(tarminal.config.time_runs)
+  end)
+
   it("setup resets previous options", function()
     tarminal.setup({ split_height = 20 })
     tarminal.setup()
