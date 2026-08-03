@@ -279,18 +279,18 @@ describe("tarminal run", function()
       park_on_error = false,
       follow_run = "none",
       shell = "bash",
-      runners = { lua = "true" },
+      runners = { lua = "echo tarminal_ran" },
     })
 
     tarminal.run()
     local term_buf = find_term_buf()
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, 1))
+    assert.is_true(wait_run_finished(term_buf, 1, "tarminal_ran"))
 
     -- a half-written command left at the prompt and never entered
     term.term_send(term_buf, "echo glued > " .. marker)
     tarminal.run()
-    assert.is_true(wait_run_finished(term_buf, 2))
+    assert.is_true(wait_run_finished(term_buf, 2, "tarminal_ran"))
 
     local glued = vim.fn.filereadable(marker) == 1
     vim.fn.delete(marker)
@@ -581,8 +581,7 @@ describe("tarminal run", function()
     tarminal.run()
     term_buf = find_term_buf()
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, 1))
-    assert.is_true(printed("tarminal_first"))
+    assert.is_true(wait_run_finished(term_buf, 1, "tarminal_first"))
 
     opts.runners.lua = "echo tarminal_second"
     tarminal.setup(opts)

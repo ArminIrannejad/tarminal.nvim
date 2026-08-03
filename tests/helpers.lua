@@ -14,14 +14,26 @@ function M.banner_rows(term_buf)
   return rows
 end
 
+function M.output_count(term_buf, needle)
+  local seen = 0
+  for _, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+    if vim.startswith(vim.trim(l), needle) then
+      seen = seen + 1
+    end
+  end
+  return seen
+end
+
 -- wait until `n` banners are printed and the shell has the foreground
 -- back so a follow-up run() is not refused by the busy guard
 -- on slow CI the previous command still runs when two runs are issued
 -- back to back
-function M.wait_run_finished(term_buf, n)
+function M.wait_run_finished(term_buf, n, marker)
   local term_busy = platform.term_busy
   return vim.wait(8000, function()
-    return #M.banner_rows(term_buf) >= n and not term_busy(term_buf)
+    return #M.banner_rows(term_buf) >= n
+      and not term_busy(term_buf)
+      and (marker == nil or M.output_count(term_buf, marker) >= n)
   end, 50)
 end
 
