@@ -969,6 +969,76 @@ describe("tarminal", function()
     vim.fn.delete(script)
   end)
 
+  it("drops input typed at the prompt before sending a run", function()
+    -- both the busy probe and ^C line editing need a job-control shell
+    if vim.fn.executable("bash") == 0 then
+      return
+    end
+    local marker = vim.fn.tempname()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      banner = true,
+      clear_run = false, -- keep both banners in the buffer
+      park_on_error = false,
+      follow_run = "none",
+      shell = "bash",
+      runners = { lua = "true" },
+    })
+
+    tarminal.run()
+    local term_buf
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "tarminal" then
+        term_buf = buf
+      end
+    end
+    assert.is_not_nil(term_buf)
+    assert.is_true(wait_run_finished(term_buf, 1))
+
+    -- a half-written command left at the prompt, never entered
+    term.term_send(term_buf, "echo glued > " .. marker)
+    tarminal.run()
+    assert.is_true(wait_run_finished(term_buf, 2))
+
+    local glued = vim.fn.filereadable(marker) == 1
+    vim.fn.delete(marker)
+    vim.fn.delete(file)
+    assert.is_false(glued)
+  end)
+
+  it("keeps watching while the shell still has a child", function()
+    -- a shell busy in a builtin owns the foreground and so looks idle
+    local buf = vim.api.nvim_create_buf(false, true)
+    local term_busy, shell_has_child = platform.term_busy, platform.shell_has_child
+    platform.term_busy = function()
+      return false
+    end
+    platform.shell_has_child = function()
+      return true
+    end
+
+    errors.watch_run_output(buf, nil, 0, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "output" })
+    local stopped_early = vim.wait(2000, function()
+      return tarminal._watch_timer == nil
+    end, 50)
+
+    platform.shell_has_child = function()
+      return false
+    end
+    local stopped = vim.wait(4000, function()
+      return tarminal._watch_timer == nil
+    end, 50)
+
+    platform.term_busy, platform.shell_has_child = term_busy, shell_has_child
+    vim.api.nvim_buf_delete(buf, { force = true })
+    assert.is_false(stopped_early)
+    assert.is_true(stopped)
+  end)
+
   it("stops the error watcher when the run completes", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
@@ -1025,7 +1095,7 @@ describe("tarminal", function()
     -- types at the prompt can be inspected
     local out = vim.fn.tempname()
     local script = vim.fn.tempname() .. ".sh"
-    vim.fn.writefile({ "exec cat > " .. out }, script)
+    vim.fn.writefile({ "trap '' INT", "exec cat > " .. out }, script)
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
@@ -1053,10 +1123,11 @@ describe("tarminal", function()
 
   -- a "shell" that copies its stdin to `out`, so the exact command exec
   -- sends can be inspected; returns the path of the capture file
+  -- it ignores SIGINT, like the real shell a run sends ^C to
   local function stdin_capture_shell()
     local out = vim.fn.tempname()
     local script = vim.fn.tempname() .. ".sh"
-    vim.fn.writefile({ "exec cat > " .. out }, script)
+    vim.fn.writefile({ "trap '' INT", "exec cat > " .. out }, script)
     return out, script
   end
 
@@ -1444,6 +1515,36 @@ describe("tarminal", function()
     assert.equals(1, #qf)
     assert.equals(2, qf[1].lnum)
     assert.equals("E", qf[1].type)
+  end)
+
+  it("collects an error that follows a width-filling output line", function()
+    vim.fn.setqflist({})
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;" }, file)
+    -- an output line as wide as the terminal looks like a wrapped first row
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      ("printf '%%s\\n' %s"):format(string.rep("x", vim.o.columns)),
+      ("printf '%%s:1:1: error: e\\n' %s"):format(file),
+      "sleep 10",
+    }, script)
+    tarminal.setup({ shell = "sh " .. script, quickfix = { open = false, close_terminal = false } })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    assert.equals(vim.o.columns, vim.api.nvim_win_get_width(0))
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":1:1: error", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    tarminal.errors_to_quickfix()
+    local qf = vim.fn.getqflist()
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+    assert.equals(1, #qf)
+    assert.equals(1, qf[1].lnum)
   end)
 
   it("refuses error navigation outside a terminal buffer", function()
