@@ -121,6 +121,10 @@ just have nothing above them. Error highlighting and quickfix collection
 track a bannerless run's output just the same; only the view pinning to the
 banner is skipped.
 
+A run is refused while the terminal is busy with a command. When it is idle,
+anything half-typed at the prompt is cancelled with `^C` first, so a line you
+started and walked away from can never be glued onto the run command.
+
                                                 *tarminal-shell-integration*
 With `shell_integration = true` (the default), tarminal types a one-line
 setup snippet into each shell terminal it opens, then clears the screen so
