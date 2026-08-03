@@ -1,4 +1,4 @@
---- Terminal window/buffer management and channel plumbing.
+--- Terminal window/buffer management and channel plumbing
 
 local config = require("tarminal.config")
 local state = require("tarminal.state")
@@ -41,7 +41,8 @@ local function ensure_window_for_buf(buf)
   return win
 end
 
--- close the terminal's window; the last window can't close, so blank it instead
+-- close the terminal's window
+-- the last window can't close so blank it instead
 local function close_window_for_buf(buf)
   local win = find_win_for_buf(buf)
   if win and not pcall(vim.api.nvim_win_close, win, false) then
@@ -72,7 +73,7 @@ local function find_live_terminal(var_name, expected)
   end
 end
 
--- the shell may be a spaced path, with optional flags after it:
+-- the shell may be a spaced path with optional flags after it
 -- keep the longest executable prefix as one argv entry
 ---@return string[]
 local function shell_cmd(shell)
@@ -86,7 +87,7 @@ local function shell_cmd(shell)
   return parts
 end
 
----@param name string buffer name, e.g. "tarminal://shell"
+---@param name string buffer name like "tarminal://shell"
 ---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
   local win = terminal_split()
@@ -122,9 +123,25 @@ local function term_send(buf, text)
   vim.fn.chansend(get_job_id(buf), text)
 end
 
--- leading space keeps it out of shell history (ignorespace)
-local function term_send_command(buf, cmd)
-  term_send(buf, " " .. cmd .. "\n")
+-- ^C drops whatever is typed at the prompt
+local CANCEL_INPUT = "\003"
+-- the tty flushes pending input with the signal so ours goes after
+local CANCEL_DELAY = 50
+
+---@param cancel_pending boolean|nil drop typed-but-unsent input first
+local function term_send_command(buf, cmd, cancel_pending)
+  -- leading space keeps it out of shell history (ignorespace)
+  local line = " " .. cmd .. "\n"
+  if not cancel_pending then
+    term_send(buf, line)
+    return
+  end
+  term_send(buf, CANCEL_INPUT)
+  vim.defer_fn(function()
+    if vim.api.nvim_buf_is_valid(buf) and is_terminal_alive(buf) then
+      term_send(buf, line)
+    end
+  end, CANCEL_DELAY)
 end
 
 local sh_quote = util.sh_quote
@@ -134,7 +151,8 @@ local function term_cd(buf, dir)
   vim.b[buf].term_cwd = dir
 end
 
--- clear scrollback (3J), home (H), then the screen (2J); works in bash/zsh/fish
+-- clear scrollback (3J) home (H) then the screen (2J)
+-- works in bash zsh and fish
 local CLEAR_SEQ = "printf '\\033[3J\\033[H\\033[2J'"
 
 local function clear_terminal(buf)

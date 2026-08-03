@@ -1,4 +1,4 @@
---- Error parsing, highlighting, run-output watching, and navigation.
+--- Error parsing highlighting run output watching and navigation
 
 local config = require("tarminal.config")
 local platform = require("tarminal.platform")
@@ -76,7 +76,7 @@ local function match_patterns(line, term_buf)
   for _, pat in ipairs(config.opts.error_patterns) do
     local init = 1
     while true do
-      -- caps[1..2] = match bounds; capture N = caps[2+N]
+      -- caps[1..2] is the match bounds and caps[2+N] is capture N
       local caps = { line:find(pat.pattern, init) }
       local s, e = caps[1], caps[2]
       if not s then
@@ -152,11 +152,11 @@ end
 
 ---@return integer first, integer last, string|nil file, integer|nil lnum,
 ---        integer|nil col, integer|nil span_s, integer|nil span_e, integer|nil sev
-local function scan_logical_at(lines, row, width, term_buf)
+local function scan_logical_at(lines, row, width, term_buf, min_row, max_row)
   local logical, first, last = logical_line_at(lines, row, width)
   local file, lnum, col, s, e, sev = parse_error_line(logical, term_buf)
   if not file and first ~= last then
-    for r = first, last do
+    for r = math.max(first, min_row or first), math.min(last, max_row or last) do
       file, lnum, col, s, e, sev = parse_error_line(lines[r], term_buf)
       if file then
         return r, r, file, lnum, col, s, e, sev
@@ -166,11 +166,11 @@ local function scan_logical_at(lines, row, width, term_buf)
   return first, last, file, lnum, col, s, e, sev
 end
 
--- panels that stay panels: taking one over would destroy what it is showing
+-- panels that stay panels because taking one over destroys what it shows
 local KEEP = { terminal = true, quickfix = true, help = true, prompt = true }
 
--- an oil/dirvish-style window is still a file window; reuse it rather than
--- splitting a third window in
+-- an oil/dirvish-style window is still a file window
+-- reuse it rather than splitting a third window in
 local function reusable(win, tab)
   return win ~= 0
     and vim.api.nvim_win_is_valid(win)
@@ -188,7 +188,7 @@ local function pick_code_win()
   wins[#wins + 1] = vim.fn.win_getid(vim.fn.winnr("#"))
   vim.list_extend(wins, vim.api.nvim_tabpage_list_wins(0))
   local tab = vim.api.nvim_get_current_tabpage()
-  -- a real file window first, then any reusable one
+  -- a real file window first then any reusable one
   for _, win in ipairs(wins) do
     if reusable(win, tab) and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == "" then
       return win
@@ -201,7 +201,8 @@ local function pick_code_win()
   end
 end
 
--- only tarminal's own terminals (ft "tarminal"); never a plain :terminal
+-- only tarminal's own terminals with ft "tarminal"
+-- never a plain :terminal
 ---@return integer|nil term_buf
 local function current_term_buf()
   local buf = vim.api.nvim_get_current_buf()
@@ -236,7 +237,7 @@ function M.jump_to_error()
   vim.bo[buf].buflisted = true
   local ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
   if not ok then
-    -- a winfixbuf window refuses a new buffer; split off that one
+    -- a winfixbuf window refuses a new buffer so split off that one
     vim.cmd("aboveleft split")
     win = vim.api.nvim_get_current_win()
     ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
@@ -245,7 +246,7 @@ function M.jump_to_error()
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
-  -- no line number -> line 1; linkers emit line 0 — clamp both ends
+  -- clamp both ends for a missing line number and the 0 linkers emit
   lnum = math.min(math.max(lnum or 1, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
@@ -257,6 +258,8 @@ end
 
 local WATCH_INTERVAL = 200
 local WATCH_TIMEOUT = 30000
+-- let the output settle before calling a run done
+local QUIET_GRACE = 1000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
 
@@ -281,8 +284,8 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
   end
 end
 
--- row of the last RUN banner below `min_row` (^===== guards against output
--- quoting it)
+-- row of the last RUN banner below `min_row`
+-- ^===== guards against output quoting it
 ---@return integer|nil row
 local function find_banner_row(lines, banner_token, min_row)
   for i = #lines, (min_row or 0) + 1, -1 do
@@ -350,7 +353,9 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       if tick == last_tick then
         elapsed = elapsed + WATCH_INTERVAL
         local busy = platform.term_busy(term_buf)
-        if (seen and busy == false) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
+        -- a live child means output may still be coming
+        local settled = busy == false and elapsed >= QUIET_GRACE and platform.shell_has_child(term_buf) ~= true
+        if (seen and settled) or (busy ~= true and elapsed > WATCH_TIMEOUT) then
           flush_pin()
           stop()
         end
@@ -395,7 +400,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local width = pty_width(term_buf)
       local i = banner_row + 1
       while i <= #lines do
-        local first, last, file, _, _, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf)
+        local first, last, file, _, _, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf, i)
         if file then
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
           if not parked and sev >= config.opts.error_threshold then
@@ -424,7 +429,8 @@ local function goto_error(dir)
   local _, cur_first, cur_last = logical_line_at(lines, row, width)
   local i = dir > 0 and cur_last + 1 or cur_first - 1
   while i >= 1 and i <= #lines do
-    local first, last, file, _, _, _, _, sev = scan_logical_at(lines, i, width, term_buf)
+    local first, last, file, _, _, _, _, sev =
+      scan_logical_at(lines, i, width, term_buf, dir > 0 and i or nil, dir < 0 and i or nil)
     if file and sev >= config.opts.error_threshold then
       vim.api.nvim_win_set_cursor(0, { first, 0 })
       return
@@ -465,14 +471,14 @@ function M.errors_to_quickfix()
   local items = {}
   local i = start_row
   while i <= #lines do
-    local logical, _, last = logical_line_at(lines, i, width)
-    local file, lnum, col, _, _, sev = parse_error_line(logical, term_buf)
+    -- scanned so a width-filling line can't swallow the error under it
+    local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf, i)
     if file and sev >= config.opts.error_threshold then
       items[#items + 1] = {
         filename = file,
         lnum = lnum or 1,
         col = col or 1,
-        text = vim.trim(logical),
+        text = vim.trim(table.concat(lines, "", first, last)),
         type = ({ [0] = "I", [1] = "W", [2] = "E" })[sev] or "E",
       }
     end

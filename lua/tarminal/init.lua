@@ -1,4 +1,4 @@
---- tarminal.nvim — terminal runner / REPL integration.
+--- tarminal.nvim terminal runner and REPL integration
 
 local config = require("tarminal.config")
 local errors = require("tarminal.errors")
@@ -19,7 +19,7 @@ M.next_error = errors.next_error
 M.prev_error = errors.prev_error
 M.errors_to_quickfix = errors.errors_to_quickfix
 
--- runs on require, so highlights and cwd tracking work without setup()
+-- runs on require so highlights and cwd tracking work without setup()
 local function register()
   local group = vim.api.nvim_create_augroup("tarminal-highlight", { clear = true })
 
@@ -40,7 +40,7 @@ local function register()
       if vim.bo[ev.buf].filetype ~= "tarminal" then
         return
       end
-      -- 0.11 wraps the sequence in a table; 0.10 passes it as a bare string
+      -- 0.11 wraps the sequence in a table and 0.10 passes a bare string
       local seq = type(ev.data) == "table" and ev.data.sequence or ev.data
       if type(seq) ~= "string" then
         return
@@ -56,7 +56,7 @@ end
 
 register()
 
----@param opts tarminal.Config|nil merged over the defaults; optional
+---@param opts tarminal.Config|nil optional table merged over the defaults
 function M.setup(opts)
   config.setup(opts)
 end

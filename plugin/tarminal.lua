@@ -42,7 +42,7 @@ end, {
         return vim.startswith(s, arglead)
       end, subcommands)
     end
-    -- paths only: $PATH would bury the useful matches under hundreds of names
+    -- paths only since $PATH would bury the useful matches
     if sub == "exec" then
       return vim.fn.getcompletion(arglead, "file")
     end
