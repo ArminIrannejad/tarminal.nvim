@@ -329,6 +329,32 @@ describe("tarminal run", function()
     assert.equals(" cd '", first_line:sub(1, 5))
   end)
 
+  it("kills the prompt line ahead of a run that cancels typed input", function()
+    local out, script = stdin_capture_shell(true)
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({
+      banner = false,
+      clear_run = false,
+      park_on_error = false,
+      follow_run = "none",
+      shell = "sh " .. script,
+      runners = { lua = "true" },
+    })
+
+    tarminal.run()
+    local first = wait_capture(out, " cd '")
+    tarminal.run()
+    local cancelled = wait_capture(out, "\003\005\021 cd '")
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    assert.is_true(first)
+    assert.is_true(cancelled)
+  end)
+
   it("does not pad bannered runs with blank terminal lines", function()
     local out, script = stdin_capture_shell()
     local file = vim.fn.tempname() .. ".lua"
