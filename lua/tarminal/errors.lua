@@ -152,11 +152,11 @@ end
 
 ---@return integer first, integer last, string|nil file, integer|nil lnum,
 ---        integer|nil col, integer|nil span_s, integer|nil span_e, integer|nil sev
-local function scan_logical_at(lines, row, width, term_buf)
+local function scan_logical_at(lines, row, width, term_buf, min_row, max_row)
   local logical, first, last = logical_line_at(lines, row, width)
   local file, lnum, col, s, e, sev = parse_error_line(logical, term_buf)
   if not file and first ~= last then
-    for r = first, last do
+    for r = math.max(first, min_row or first), math.min(last, max_row or last) do
       file, lnum, col, s, e, sev = parse_error_line(lines[r], term_buf)
       if file then
         return r, r, file, lnum, col, s, e, sev
@@ -400,7 +400,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local width = pty_width(term_buf)
       local i = banner_row + 1
       while i <= #lines do
-        local first, last, file, _, _, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf)
+        local first, last, file, _, _, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf, i)
         if file then
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
           if not parked and sev >= config.opts.error_threshold then
@@ -429,7 +429,8 @@ local function goto_error(dir)
   local _, cur_first, cur_last = logical_line_at(lines, row, width)
   local i = dir > 0 and cur_last + 1 or cur_first - 1
   while i >= 1 and i <= #lines do
-    local first, last, file, _, _, _, _, sev = scan_logical_at(lines, i, width, term_buf)
+    local first, last, file, _, _, _, _, sev =
+      scan_logical_at(lines, i, width, term_buf, dir > 0 and i or nil, dir < 0 and i or nil)
     if file and sev >= config.opts.error_threshold then
       vim.api.nvim_win_set_cursor(0, { first, 0 })
       return
@@ -471,7 +472,7 @@ function M.errors_to_quickfix()
   local i = start_row
   while i <= #lines do
     -- scanned so a width-filling line can't swallow the error under it
-    local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf)
+    local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf, i)
     if file and sev >= config.opts.error_threshold then
       items[#items + 1] = {
         filename = file,

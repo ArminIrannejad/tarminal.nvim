@@ -223,6 +223,30 @@ describe("tarminal errors", function()
     vim.fn.delete(file)
   end)
 
+  it("keeps a scan bounded so a walking loop always advances", function()
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int main() {}" }, file)
+    local buf = vim.api.nvim_get_current_buf()
+    local diag = file .. ":2:1: error"
+    local width = vim.fn.strdisplaywidth(diag) + 4
+    local lines = {
+      string.rep("x", width),
+      diag .. string.rep(" ", width - vim.fn.strdisplaywidth(diag)),
+      "tail",
+    }
+    -- without the bound the match on row 2 is returned again from row 3
+    local first, last, f = errors.scan_logical_at(lines, 3, width, buf, 3)
+    assert.is_true(last >= 3)
+    assert.is_nil(f)
+    local rfirst = errors.scan_logical_at(lines, 1, width, buf, nil, 1)
+    assert.is_true(rfirst <= 1)
+    -- unbounded still finds the row under the cursor's logical line
+    local _, _, unbounded = errors.scan_logical_at(lines, 3, width, buf)
+    assert.equals(file, unbounded)
+    assert.equals(1, first)
+    vim.fn.delete(file)
+  end)
+
   it("clears stale error highlights when a new run starts", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
