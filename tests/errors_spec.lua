@@ -437,6 +437,60 @@ describe("tarminal errors", function()
     assert.equals(1, qf[1].lnum)
   end)
 
+  it("replaces its own quickfix list instead of stacking onto it", function()
+    local stale = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int stale;" }, stale)
+    vim.fn.setqflist({}, " ", { title = "tarminal errors", items = { { filename = stale, lnum = 1 } } })
+    local depth = vim.fn.getqflist({ nr = "$" }).nr
+
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script, quickfix = { open = false, close_terminal = false } })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1: error", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    tarminal.errors_to_quickfix()
+    local qf = vim.fn.getqflist()
+    vim.fn.delete(stale)
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+    assert.equals(1, #qf)
+    assert.equals(2, qf[1].lnum)
+    assert.equals(depth, vim.fn.getqflist({ nr = "$" }).nr)
+  end)
+
+  it("clears its own quickfix list when a run has no errors", function()
+    local stale = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int stale;" }, stale)
+    vim.fn.setqflist({}, " ", { title = "tarminal errors", items = { { filename = stale, lnum = 1 } } })
+
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ "printf 'all good\\n'", "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script, quickfix = { open = false, close_terminal = false } })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find("all good", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    tarminal.errors_to_quickfix()
+    local qf = vim.fn.getqflist()
+    vim.fn.delete(stale)
+    vim.fn.delete(script)
+    assert.equals(0, #qf)
+  end)
+
   it("refuses error navigation outside a terminal buffer", function()
     vim.fn.setqflist({})
     local file = vim.fn.tempname() .. ".c"

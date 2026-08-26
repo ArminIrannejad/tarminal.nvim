@@ -87,7 +87,8 @@ lazy.nvim spec.
 - `:'<,'>Tarminal send_selection` sends the selected lines to the REPL.
 - `:Tarminal jump_to_error` jumps to the error on the current terminal line.
 - `:Tarminal next_error` and `:Tarminal prev_error` move between errors.
-- `:Tarminal errors_to_quickfix` adds all found errors to quickfix.
+- `:Tarminal errors_to_quickfix` adds all found errors to quickfix, replacing its
+  own previous list rather than stacking a new one.
 
 `<Tab>` completes subcommands, and file paths after `:Tarminal exec`.
 

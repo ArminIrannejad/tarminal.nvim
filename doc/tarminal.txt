@@ -194,6 +194,10 @@ With `quickfix = { open = false, close_terminal = false }`,
 errors_to_quickfix only populates the quickfix list and reports how many
 locations it found, leaving the terminal untouched.
 
+errors_to_quickfix replaces the list it made last time instead of pushing a
+new one, and empties it when a run has no locations, so stale errors never
+linger. A quickfix list from anything else is left alone and pushed onto.
+
 tarminal's terminal buffers are named `tarminal://shell` and
 `tarminal://repl:<filetype>` and get the `tarminal` filetype. The plugin
 never touches terminal buffers it did not create.

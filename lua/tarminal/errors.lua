@@ -448,6 +448,12 @@ function M.prev_error()
   goto_error(-1)
 end
 
+local QF_TITLE = "tarminal errors"
+
+local function qf_is_ours()
+  return vim.fn.getqflist({ title = 0 }).title == QF_TITLE
+end
+
 function M.errors_to_quickfix()
   local term_buf = current_term_buf()
   if not term_buf then
@@ -486,11 +492,14 @@ function M.errors_to_quickfix()
   end
 
   if #items == 0 then
+    if qf_is_ours() then
+      vim.fn.setqflist({}, "r", { title = QF_TITLE, items = {} })
+    end
     vim.notify("No error locations in terminal output", vim.log.levels.WARN)
     return
   end
 
-  vim.fn.setqflist({}, " ", { title = "tarminal errors", items = items })
+  vim.fn.setqflist({}, qf_is_ours() and "r" or " ", { title = QF_TITLE, items = items })
   local qf = config.opts.quickfix
   if qf.close_terminal then
     term.close_window_for_buf(term_buf)
