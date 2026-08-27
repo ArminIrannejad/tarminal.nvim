@@ -135,6 +135,19 @@ local function osc7_cwd(seq)
   return path
 end
 
+--- whether this OS can read a shell's cwd straight from the process
+---@return boolean
+local function has_cwd_probe()
+  if SYSNAME == "Linux" or SYSNAME == "NetBSD" then
+    return uv.fs_readlink("/proc/self/cwd") ~= nil
+  elseif SYSNAME == "Darwin" then
+    return vim.fn.executable(LSOF) == 1
+  elseif SYSNAME == "FreeBSD" then
+    return vim.fn.executable("procstat") == 1
+  end
+  return false
+end
+
 local SHELL_TTL = 1000
 local shell_cache = {}
 
@@ -226,6 +239,7 @@ end
 M.parse_lsof_cwd = parse_lsof_cwd
 M.parse_procstat_cwd = parse_procstat_cwd
 M.osc7_cwd = osc7_cwd
+M.has_cwd_probe = has_cwd_probe
 M.prep_run_cache = prep_run_cache
 M.clear_cache = clear_cache
 M.term_cwd = term_cwd

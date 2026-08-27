@@ -45,6 +45,18 @@ describe("tarminal platform", function()
     end
   end)
 
+  it("reports a cwd probe on this platform", function()
+    local sysname = (vim.uv.os_uname() or {}).sysname
+    local probed = platform.has_cwd_probe()
+    if sysname == "Linux" then
+      assert.is_true(probed)
+    elseif sysname == "OpenBSD" then
+      assert.is_false(probed)
+    else
+      assert.is_boolean(probed)
+    end
+  end)
+
   it("respects shell_integration = false", function()
     tarminal.setup({ shell_integration = false })
     assert.is_false(tarminal.config.shell_integration)

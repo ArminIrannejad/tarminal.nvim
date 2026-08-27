@@ -120,6 +120,48 @@ describe("tarminal term", function()
     assert.equals(2, #vim.api.nvim_tabpage_list_wins(first_tab))
   end)
 
+  -- a capture shell whose basename is bash so the OSC 7 snippet is selected
+  local function capture_bash()
+    local out, script = helpers.stdin_capture_shell()
+    return out, script, "bash " .. script
+  end
+
+  local function toggle_and_capture(probe, out, shell)
+    local platform = require("tarminal.platform")
+    local saved = platform.has_cwd_probe
+    platform.has_cwd_probe = function()
+      return probe
+    end
+    tarminal.setup({ shell = shell })
+    tarminal.toggle()
+    local buf = vim.api.nvim_get_current_buf()
+    term.term_send_command(buf, "MARKER")
+    local seen = helpers.wait_capture(out, "MARKER")
+    platform.has_cwd_probe = saved
+    assert.is_true(seen)
+    return table.concat(vim.fn.readfile(out), "\n")
+  end
+
+  it("types the OSC 7 snippet when no cwd probe answers", function()
+    local out, script, shell = capture_bash()
+    local typed = toggle_and_capture(false, out, shell)
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+
+    assert.is_truthy(typed:find("__tarminal_osc7", 1, true))
+    assert.is_truthy(typed:find("\\033[3J", 1, true))
+  end)
+
+  it("skips the OSC 7 snippet when the cwd probe answers", function()
+    local out, script, shell = capture_bash()
+    local typed = toggle_and_capture(true, out, shell)
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+
+    assert.is_nil(typed:find("__tarminal_osc7", 1, true))
+    assert.is_nil(typed:find("\\033[3J", 1, true))
+  end)
+
   it("does not touch terminals it did not create", function()
     vim.cmd("terminal")
     local buf = vim.api.nvim_get_current_buf()

@@ -1,6 +1,7 @@
 --- Terminal window/buffer management and channel plumbing
 
 local config = require("tarminal.config")
+local platform = require("tarminal.platform")
 local state = require("tarminal.state")
 local util = require("tarminal.util")
 
@@ -175,7 +176,8 @@ local function osc7_snippet(cmd)
 end
 
 local function enable_shell_integration(buf)
-  if not config.opts.shell_integration then
+  -- the OS probe already answers and costs nothing at the prompt
+  if not config.opts.shell_integration or platform.has_cwd_probe() then
     return
   end
   local snippet = osc7_snippet(config.opts.shell)
