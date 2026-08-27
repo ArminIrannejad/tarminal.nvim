@@ -42,14 +42,21 @@ end
 -- returns the path of the capture file
 -- it ignores SIGINT like the real shell a run sends ^C to
 ---@param raw boolean|nil pass the control bytes through instead of letting the tty eat them
-function M.stdin_capture_shell(raw)
+---@param name string|nil basename to give the script so shell-specific paths can be exercised
+function M.stdin_capture_shell(raw, name)
   local out = vim.fn.tempname()
   local script = vim.fn.tempname() .. ".sh"
-  local lines = { "trap '' INT", "exec cat > " .. out }
+  if name then
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    script = dir .. "/" .. name
+  end
+  local lines = { "#!/bin/sh", "trap '' INT", "exec cat > " .. out }
   if raw then
-    table.insert(lines, 1, "stty raw -echo")
+    table.insert(lines, 2, "stty raw -echo")
   end
   vim.fn.writefile(lines, script)
+  vim.fn.setfperm(script, "rwxr-xr-x")
   return out, script
 end
 
