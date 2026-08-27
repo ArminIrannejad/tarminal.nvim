@@ -1,6 +1,7 @@
 --- :checkhealth tarminal verifies the per-OS probes and configured commands
 
 local config = require("tarminal.config")
+local platform = require("tarminal.platform")
 local term = require("tarminal.term")
 local util = require("tarminal.util")
 
@@ -116,6 +117,12 @@ local function check_shell()
 
   if not config.opts.shell_integration then
     info("shell_integration is off")
+    return
+  end
+  if platform.has_cwd_probe() then
+    info("shell_integration: not needed; the cwd probe answers on this OS", {
+      "No snippet is typed at the prompt. See |tarminal-shell-integration|.",
+    })
     return
   end
   if term.osc7_snippet(shell) then

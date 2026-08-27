@@ -111,7 +111,7 @@ require("tarminal").setup({
   time_runs = false,                    -- time the run (for compiled files: the binary)
   banner = true,                        -- print "===== RUN =====" before each run
   clear_run = true,                     -- wipe the terminal + scrollback before each run
-  shell_integration = true,             -- track the shell's cwd via OSC 7
+  shell_integration = true,             -- OSC 7 cwd tracking where no OS probe answers
   quickfix = {
     open = true,
     close_terminal = true,
@@ -134,20 +134,24 @@ started and walked away from can never be glued onto the run command.
 
 ### Shell integration
 
-When tarminal opens a shell terminal it types a one-line setup snippet at the
-prompt, then clears the screen so the snippet and its output aren't left
-behind. The snippet installs a prompt hook that reports the working directory
-via OSC 7, so a relative path in error output resolves against the directory
-the shell is actually in — not the one it started in.
+A relative path in error output resolves against the directory the shell is
+actually in — not the one it started in. Where the OS can be asked directly
+(`/proc` on Linux/WSL and NetBSD, `lsof` on macOS, `procstat` on FreeBSD)
+tarminal just asks it, and opens shells untouched: nothing is typed at the
+prompt, nothing is cleared.
+
+Only where no such probe answers — OpenBSD, or a stripped-down system missing
+`lsof`/procfs — does tarminal type a one-line setup snippet at the prompt and
+clear the screen after it. The snippet installs a prompt hook that reports the
+working directory via OSC 7.
 
 Only `bash`, `zsh`, and `fish` are recognized, by the basename of `shell`. Any
-other shell is left alone: nothing is typed, nothing is cleared, and tarminal
-falls back to a per-OS probe (`/proc`, `lsof`, `procstat`), then to Neovim's
-working directory.
+other shell is left alone, and tarminal falls back to Neovim's working
+directory.
 
-It only defines a function and registers a prompt hook in tarminal's own
-terminals — your shell rc files are never touched, and no shell outside Neovim
-is affected. Turn it off with `shell_integration = false`.
+The snippet only defines a function and registers a prompt hook in tarminal's
+own terminals — your shell rc files are never touched, and no shell outside
+Neovim is affected. Turn it off with `shell_integration = false`.
 
 ### Runners
 
