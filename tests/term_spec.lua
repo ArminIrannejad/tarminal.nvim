@@ -168,6 +168,35 @@ describe("tarminal term", function()
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 
+  it("keeps the term name with keep_term_name so user term autocmds still match", function()
+    local hits = {}
+    local group = vim.api.nvim_create_augroup("tarminal-test-term", { clear = true })
+    for _, event in ipairs({ "BufEnter", "TermClose" }) do
+      vim.api.nvim_create_autocmd(event, {
+        group = group,
+        pattern = "term://*",
+        callback = function()
+          hits[event] = true
+        end,
+      })
+    end
+
+    tarminal.setup({ keep_term_name = true })
+    tarminal.toggle()
+    local buf = vim.api.nvim_get_current_buf()
+    assert.is_truthy(vim.startswith(vim.api.nvim_buf_get_name(buf), "term://"))
+    vim.cmd("wincmd p")
+    vim.cmd("wincmd p")
+    vim.fn.jobstop(vim.b[buf].terminal_job_id)
+    vim.wait(2000, function()
+      return hits.TermClose
+    end, 20)
+    vim.api.nvim_del_augroup_by_id(group)
+
+    assert.is_true(hits.BufEnter)
+    assert.is_true(hits.TermClose)
+  end)
+
   it("fires FileType tarminal so users can add buffer-local keymaps", function()
     local mapped_buf
     local autocmd = vim.api.nvim_create_autocmd("FileType", {

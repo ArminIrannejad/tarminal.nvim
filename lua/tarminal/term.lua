@@ -115,7 +115,9 @@ local function open_shell_term(name)
   vim.opt_local.relativenumber = false
   vim.opt_local.scrolloff = 0
   vim.bo[buf].filetype = "tarminal"
-  pcall(vim.api.nvim_buf_set_name, buf, name)
+  if not config.opts.keep_term_name then
+    pcall(vim.api.nvim_buf_set_name, buf, name)
+  end
 
   return buf, win
 end

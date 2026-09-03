@@ -19,6 +19,7 @@
 ---@field autosave boolean write the buffer before a run else use disk
 ---@field park_on_error boolean highlight errors and park on the first
 ---@field close_on_jump boolean close the terminal after jump_to_error lands
+---@field keep_term_name boolean keep the term:// buffer name instead of tarminal://
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a time binary exists
 ---@field banner boolean print a RUN banner before each run
@@ -67,6 +68,7 @@ local defaults = {
   autosave = true,
   park_on_error = true,
   close_on_jump = false,
+  keep_term_name = false,
   cell_marker = "# COMMAND ----------",
   time_runs = false,
   banner = true,
