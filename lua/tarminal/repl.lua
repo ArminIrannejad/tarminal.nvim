@@ -122,9 +122,9 @@ local function get_or_start_repl(ft)
   if not buf then
     return nil
   end
+  vim.b[buf].repl_ft = ft
   term.term_cd(buf, dir)
   term.term_send_command(buf, repl_cmd)
-  vim.b[buf].repl_ft = ft
   -- ensure the REPL came up before sending or source hits the shell
   if not platform.wait_for_repl(buf) then
     vim.notify("REPL failed to start: " .. repl_cmd, vim.log.levels.ERROR)

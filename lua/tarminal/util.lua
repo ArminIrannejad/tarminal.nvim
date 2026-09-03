@@ -11,6 +11,11 @@ function M.get_job_id(buf)
   return vim.b[buf].terminal_job_id
 end
 
+-- a shell or REPL terminal tarminal opened
+function M.owns(buf)
+  return vim.b[buf].is_shell == true or vim.b[buf].repl_ft ~= nil
+end
+
 -- POSIX quoting for the spawned shell regardless of &shell
 function M.sh_quote(s)
   return "'" .. s:gsub("'", [['\'']]) .. "'"

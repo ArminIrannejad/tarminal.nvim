@@ -4,6 +4,7 @@ local config = require("tarminal.config")
 local platform = require("tarminal.platform")
 local state = require("tarminal.state")
 local term = require("tarminal.term")
+local util = require("tarminal.util")
 
 local M = {}
 
@@ -201,12 +202,12 @@ local function pick_code_win()
   end
 end
 
--- only tarminal's own terminals with ft "tarminal"
+-- only tarminal's own terminals
 -- never a plain :terminal
 ---@return integer|nil term_buf
 local function current_term_buf()
   local buf = vim.api.nvim_get_current_buf()
-  if vim.bo[buf].buftype ~= "terminal" or vim.bo[buf].filetype ~= "tarminal" then
+  if vim.bo[buf].buftype ~= "terminal" or not util.owns(buf) then
     vim.notify("Not in a tarminal terminal", vim.log.levels.WARN)
     return nil
   end
