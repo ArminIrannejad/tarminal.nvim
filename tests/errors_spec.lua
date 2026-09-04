@@ -778,6 +778,33 @@ describe("tarminal errors", function()
     assert.equals(0, #vim.fn.getqflist())
   end)
 
+  it("navigates errors in any terminal when any_terminal is set", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ any_terminal = true, quickfix = { open = false, close_terminal = false } })
+
+    vim.cmd("split | terminal sh " .. vim.fn.fnameescape(script))
+    local term_buf = vim.api.nvim_get_current_buf()
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.fn.setqflist({})
+    tarminal.errors_to_quickfix()
+    assert.equals(1, #vim.fn.getqflist())
+
+    vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    tarminal.jump_to_error()
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
   it("jumps to a file-only location without a line number", function()
     local file = vim.fn.resolve(vim.fn.tempname()) .. ".txt"
     vim.fn.writefile({ "hello", "world" }, file)
