@@ -21,6 +21,7 @@
 ---@field close_on_jump boolean close the terminal after jump_to_error lands
 ---@field keep_term_name boolean keep the term:// buffer name instead of tarminal://
 ---@field any_terminal boolean navigate errors in terminals tarminal did not open
+---@field win_opts table<string, any> window options set on a new terminal and replaced whole
 ---@field cell_marker string line that delimits REPL cells
 ---@field time_runs boolean `time` the run when a time binary exists
 ---@field banner boolean print a RUN banner before each run
@@ -71,6 +72,7 @@ local defaults = {
   close_on_jump = false,
   keep_term_name = false,
   any_terminal = false,
+  win_opts = { number = false, relativenumber = false, scrolloff = 0 },
   cell_marker = "# COMMAND ----------",
   time_runs = false,
   banner = true,
@@ -169,6 +171,9 @@ function M.setup(opts)
     opts.error_patterns = nil
   end
   M.opts = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
+  if opts.win_opts then
+    M.opts.win_opts = vim.deepcopy(opts.win_opts)
+  end
   if extra then
     M.opts.error_patterns = vim.list_extend(vim.deepcopy(extra), M.opts.error_patterns)
   end

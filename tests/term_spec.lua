@@ -197,6 +197,30 @@ describe("tarminal term", function()
     assert.is_true(hits.TermClose)
   end)
 
+  it("sets win_opts on a new terminal and leaves the rest alone", function()
+    local group = vim.api.nvim_create_augroup("tarminal-test-winopts", { clear = true })
+    vim.api.nvim_create_autocmd("TermOpen", {
+      group = group,
+      callback = function()
+        vim.opt_local.number = true
+        vim.opt_local.scrolloff = 5
+      end,
+    })
+
+    tarminal.toggle()
+    assert.is_false(vim.wo.number)
+    assert.equals(0, vim.wo.scrolloff)
+    tarminal.toggle()
+    vim.api.nvim_buf_delete(term.find_live_terminal("is_shell", true), { force = true })
+
+    tarminal.setup({ win_opts = { signcolumn = "yes" } })
+    tarminal.toggle()
+    vim.api.nvim_del_augroup_by_id(group)
+    assert.is_true(vim.wo.number)
+    assert.equals(5, vim.wo.scrolloff)
+    assert.equals("yes", vim.wo.signcolumn)
+  end)
+
   it("fires FileType tarminal so users can add buffer-local keymaps", function()
     local mapped_buf
     local autocmd = vim.api.nvim_create_autocmd("FileType", {
