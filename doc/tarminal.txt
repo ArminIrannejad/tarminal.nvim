@@ -47,6 +47,9 @@ Calling the setup function is optional; do it only to override defaults: >lua
       follow_repl = "none",
       park_on_error = true,
       close_on_jump = false,    -- close the terminal once jump_to_error lands
+      keep_term_name = false,   -- keep the term:// name instead of tarminal://
+      any_terminal = false,     -- navigate errors in terminals tarminal did not open
+      win_opts = { number = false, relativenumber = false, scrolloff = 0 },
       cell_marker = "# COMMAND ----------",
       time_runs = false,
       banner = true,            -- "===== RUN: <time> =====" line before each run
@@ -202,9 +205,29 @@ errors_to_quickfix replaces the list it made last time instead of pushing a
 new one, and empties it when a run has no locations, so stale errors never
 linger. A quickfix list from anything else is left alone and pushed onto.
 
-tarminal's terminal buffers are named `tarminal://shell` and
-`tarminal://repl:<filetype>` and get the `tarminal` filetype. The plugin
-never touches terminal buffers it did not create.
+                                                     *tarminal-interop*
+tarminal's terminals are plain |:terminal| buffers, so your |TermOpen|
+autocmds apply to them as to any other terminal. They get the `tarminal`
+filetype on top and are named `tarminal://shell` and
+`tarminal://repl:<filetype>`. With `keep_term_name = true` they keep the
+`term://` name Neovim gave them, so `BufEnter term://*` and |TermClose|
+autocmds match them too.
+
+                                                  *b:is_shell* *b:repl_ft*
+tarminal knows its terminals by buffer variables, not the filetype, so
+changing the filetype breaks nothing. Use them to tell the terminals apart
+in your own code: `b:is_shell` is true in the shell terminal and
+`b:repl_ft` holds the filetype a REPL terminal belongs to.
+
+`win_opts` are set on a new terminal window after your |TermOpen| autocmds
+ran. The table replaces the default whole, so `win_opts = {}` keeps your own
+terminal window options.
+
+Error navigation acts on tarminal's own terminals only. With
+`any_terminal = true` jump_to_error, next_error, prev_error and
+errors_to_quickfix work in any terminal buffer, such as one opened by
+another terminal plugin. The run watcher and its highlights stay with
+tarminal's runs. Other terminal buffers are never touched otherwise.
 
 ==============================================================================
 3. Commands                                                *tarminal-commands*
