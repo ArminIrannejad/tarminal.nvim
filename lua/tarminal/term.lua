@@ -7,16 +7,80 @@ local util = require("tarminal.util")
 
 local M = {}
 
-local function terminal_split()
+local function split_window()
   local pos = config.opts.split_position
   if pos == "auto" then
     pos = vim.o.splitbelow and "bottom" or "top"
   end
-  vim.cmd(pos == "top" and "topleft split" or "botright split")
+  local vertical = pos == "left" or pos == "right"
+  local cmd = vertical and "vsplit" or "split"
+  vim.cmd(((pos == "top" or pos == "left") and "topleft " or "botright ") .. cmd)
   local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_height(win, config.opts.split_height)
-  vim.wo.winfixheight = true
+  if vertical then
+    vim.api.nvim_win_set_width(win, config.opts.split_width)
+    vim.wo.winfixwidth = true
+  else
+    vim.api.nvim_win_set_height(win, config.opts.split_height)
+    vim.wo.winfixheight = true
+  end
   return win
+end
+
+local titles = {}
+
+-- sizes up to 1 are a fraction of the editor
+local function float_config(title)
+  local f = config.opts.float
+  local lines = vim.o.lines - vim.o.cmdheight
+  local function size(v, total)
+    v = v <= 1 and math.floor(total * v) or v
+    return math.max(math.min(v, total - 2), 1)
+  end
+  local width, height = size(f.width, vim.o.columns), size(f.height, lines)
+  local cfg = {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = math.floor((lines - height) / 2) - 1,
+    col = math.floor((vim.o.columns - width) / 2) - 1,
+    border = f.border,
+  }
+  if title and f.border and f.border ~= "none" and f.border ~= "" then
+    cfg.title = " " .. title .. " "
+    cfg.title_pos = "center"
+  end
+  return cfg
+end
+
+---@return integer win showing buf and current
+local function open_window(buf)
+  local layout = config.opts.layout
+  local win
+  if layout == "float" then
+    win = vim.api.nvim_open_win(buf, true, float_config(titles[buf]))
+  elseif type(layout) == "function" then
+    win = layout(buf)
+    vim.api.nvim_set_current_win(win)
+  else
+    win = split_window()
+  end
+  if vim.api.nvim_win_get_buf(win) ~= buf then
+    vim.api.nvim_win_set_buf(win, buf)
+  end
+  return win
+end
+
+-- keep open floats centered when the editor resizes
+local function refit_floats()
+  if config.opts.layout ~= "float" then
+    return
+  end
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if util.owns(buf) and vim.api.nvim_win_get_config(win).relative ~= "" then
+      vim.api.nvim_win_set_config(win, float_config(titles[buf]))
+    end
+  end
 end
 
 local get_job_id = util.get_job_id
@@ -37,9 +101,7 @@ local function ensure_window_for_buf(buf)
   if win then
     return win
   end
-  win = terminal_split()
-  vim.api.nvim_win_set_buf(win, buf)
-  return win
+  return open_window(buf)
 end
 
 -- close the terminal's window
@@ -91,9 +153,9 @@ end
 ---@param name string buffer name like "tarminal://shell"
 ---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
-  local win = terminal_split()
-  vim.cmd("enew")
-  local buf = vim.api.nvim_get_current_buf()
+  local buf = vim.api.nvim_create_buf(true, false)
+  titles[buf] = name:gsub("^tarminal://", "")
+  local win = open_window(buf)
   local cmd = shell_cmd(config.opts.shell)
   local ok, job
   if vim.fn.has("nvim-0.11") == 1 then
@@ -208,6 +270,8 @@ local function focus_after_send(term_win, code_win, follow, start_at_top)
 end
 
 M.shell_cmd = shell_cmd
+M.float_config = float_config
+M.refit_floats = refit_floats
 M.find_win_for_buf = find_win_for_buf
 M.ensure_window_for_buf = ensure_window_for_buf
 M.close_window_for_buf = close_window_for_buf

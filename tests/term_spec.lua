@@ -53,6 +53,59 @@ describe("tarminal term", function()
     assert.is_true(top_row < bottom_row)
   end)
 
+  it("opens a full height split on the side for left and right", function()
+    tarminal.setup({ split_position = "right", split_width = 30 })
+    tarminal.toggle()
+    local win = vim.api.nvim_get_current_win()
+    assert.equals(30, vim.api.nvim_win_get_width(win))
+    assert.is_true(vim.fn.win_screenpos(win)[2] > 1)
+    assert.is_true(vim.wo[win].winfixwidth)
+    tarminal.toggle()
+
+    tarminal.setup({ split_position = "left", split_width = 30 })
+    tarminal.toggle()
+    assert.equals(1, vim.fn.win_screenpos(vim.api.nvim_get_current_win())[2])
+  end)
+
+  it("opens and toggles a centered float with layout float", function()
+    tarminal.setup({ layout = "float", float = { width = 40, height = 0.5, border = "single" } })
+    local before = #vim.api.nvim_list_wins()
+    tarminal.toggle()
+    local win = vim.api.nvim_get_current_win()
+    local cfg = vim.api.nvim_win_get_config(win)
+    assert.equals("editor", cfg.relative)
+    assert.is_truthy(vim.inspect(cfg.title):find(" shell ", 1, true))
+    assert.equals(40, cfg.width)
+    assert.equals(math.floor((vim.o.lines - vim.o.cmdheight) * 0.5), cfg.height)
+    assert.is_true(vim.b[vim.api.nvim_win_get_buf(win)].is_shell)
+
+    tarminal.toggle()
+    assert.equals(before, #vim.api.nvim_list_wins())
+    tarminal.toggle()
+    assert.equals("editor", vim.api.nvim_win_get_config(0).relative)
+
+    tarminal.config.float.width = 50
+    vim.api.nvim_exec_autocmds("VimResized", {})
+    assert.equals(50, vim.api.nvim_win_get_config(0).width)
+  end)
+
+  it("lets a layout function open the window", function()
+    local got
+    tarminal.setup({
+      layout = function(buf)
+        got = buf
+        vim.cmd("tabnew")
+        return vim.api.nvim_get_current_win()
+      end,
+    })
+    local first_tab = vim.api.nvim_get_current_tabpage()
+    tarminal.toggle()
+    local buf = vim.api.nvim_get_current_buf()
+    assert.equals(got, buf)
+    assert.is_true(vim.b[buf].is_shell)
+    assert.is_not.equals(first_tab, vim.api.nvim_get_current_tabpage())
+  end)
+
   it("toggle opens and closes the shell terminal split", function()
     tarminal.setup()
     local before = #vim.api.nvim_list_wins()
