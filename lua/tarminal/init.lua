@@ -65,6 +65,7 @@ register()
 ---@param opts tarminal.Config|nil optional table merged over the defaults
 function M.setup(opts)
   config.setup(opts)
+  term.forget_hidden()
 end
 
 setmetatable(M, {

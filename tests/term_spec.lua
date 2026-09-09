@@ -33,6 +33,7 @@ describe("tarminal term", function()
 
     vim.o.splitbelow = true
     local below_row = toggle_and_get_row()
+    tarminal.setup()
     vim.o.splitbelow = false
     local above_row = toggle_and_get_row()
 
@@ -155,7 +156,7 @@ describe("tarminal term", function()
     assert.equals(term_buf, vim.api.nvim_get_current_buf())
   end)
 
-  it("shows and hides the shared terminal independently in each tab", function()
+  it("hides the terminal in every tab and shows it again in this one", function()
     tarminal.toggle()
     local term_buf = vim.api.nvim_get_current_buf()
     local first_tab = vim.api.nvim_get_current_tabpage()
@@ -164,13 +165,62 @@ describe("tarminal term", function()
     vim.cmd("tabnew")
     local second_tab = vim.api.nvim_get_current_tabpage()
     tarminal.toggle()
-    assert.equals(term_buf, vim.api.nvim_get_current_buf())
-    assert.equals(2, #vim.api.nvim_tabpage_list_wins(second_tab))
-    assert.equals(2, #vim.api.nvim_tabpage_list_wins(first_tab))
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(first_tab))
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(second_tab))
 
     tarminal.toggle()
-    assert.equals(1, #vim.api.nvim_tabpage_list_wins(second_tab))
-    assert.equals(2, #vim.api.nvim_tabpage_list_wins(first_tab))
+    assert.equals(term_buf, vim.api.nvim_get_current_buf())
+    assert.equals(2, #vim.api.nvim_tabpage_list_wins(second_tab))
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(first_tab))
+  end)
+
+  it("toggles a terminal living in its own tab without piling up tabs", function()
+    tarminal.setup({
+      layout = function()
+        vim.cmd("tabnew")
+        return vim.api.nvim_get_current_win()
+      end,
+    })
+    tarminal.toggle()
+    assert.equals(2, #vim.api.nvim_list_tabpages())
+    vim.cmd("tabprevious")
+
+    tarminal.toggle()
+    assert.equals(1, #vim.api.nvim_list_tabpages())
+    tarminal.toggle()
+    assert.equals(2, #vim.api.nvim_list_tabpages())
+    assert.is_true(vim.b.is_shell)
+  end)
+
+  it("brings hidden terminals back where and as big as they were", function()
+    local out = vim.fn.tempname()
+    tarminal.setup({ split_position = "right", split_width = 30, repls = { lua = "cat > " .. vim.fn.shellescape(out) } })
+    vim.bo.filetype = "lua"
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "x = 1" })
+    local code_win = vim.api.nvim_get_current_win()
+    tarminal.send_cell()
+    local repl_buf = vim.api.nvim_win_get_buf(term.find_win_for_buf(term.find_live_terminal("repl_ft", "lua")))
+    tarminal.config.split_position = "bottom"
+    vim.api.nvim_set_current_win(code_win)
+    tarminal.exec("true", true)
+    local shell_win = term.find_win_for_buf(term.find_live_terminal("is_shell", true))
+    vim.api.nvim_win_set_height(shell_win, 7)
+    local repl_win = term.find_win_for_buf(repl_buf)
+    vim.api.nvim_win_set_width(repl_win, 44)
+
+    tarminal.toggle()
+    assert.is_nil(term.find_win_for_buf(repl_buf))
+    assert.equals(1, #vim.api.nvim_tabpage_list_wins(0))
+
+    tarminal.config.split_position = "top"
+    tarminal.toggle()
+    shell_win = term.find_win_for_buf(term.find_live_terminal("is_shell", true))
+    repl_win = term.find_win_for_buf(repl_buf)
+    assert.equals(7, vim.api.nvim_win_get_height(shell_win))
+    assert.equals(44, vim.api.nvim_win_get_width(repl_win))
+    assert.is_true(vim.fn.win_screenpos(repl_win)[2] > 1)
+    assert.is_true(vim.fn.win_screenpos(shell_win)[1] > 1)
+    vim.fn.delete(out)
   end)
 
   -- a capture shell named bash so the OSC 7 snippet is selected

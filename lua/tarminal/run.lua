@@ -38,10 +38,7 @@ local function get_or_create_shell_term()
 end
 
 function M.toggle()
-  local buf = term.find_live_terminal("is_shell", true)
-  if term.find_win_for_buf(buf) then
-    term.close_window_for_buf(buf)
-  else
+  if not term.hide_all() and not term.show_hidden() then
     get_or_create_shell_term()
   end
 end
