@@ -219,6 +219,7 @@ function M.jump_to_error()
   if not term_buf then
     return
   end
+  local floating = vim.api.nvim_win_get_config(0).relative ~= ""
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local row = vim.api.nvim_win_get_cursor(0)[1]
   local _, _, file, lnum, col = scan_logical_at(lines, row, pty_width(term_buf), term_buf)
@@ -252,7 +253,7 @@ function M.jump_to_error()
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
 
-  if config.opts.close_on_jump then
+  if config.opts.close_on_jump or floating then
     term.close_window_for_buf(term_buf)
   end
 end
