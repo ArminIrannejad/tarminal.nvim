@@ -78,7 +78,8 @@ lazy.nvim spec.
 
 ## Commands
 
-- `:Tarminal` or `:Tarminal toggle` toggles the shell terminal.
+- `:Tarminal` or `:Tarminal toggle` hides every tarminal window, or brings them
+  back as they were (the shell terminal the first time).
 - `:Tarminal run` saves and runs the current file.
 - `:Tarminal exec` asks for a command and remembers the last one.
 - `:Tarminal exec {cmd}` runs a command. `%`, `%:r`, `%:t`, `#`, and other
@@ -98,8 +99,11 @@ You only need to set the options you want to change:
 
 ```lua
 require("tarminal").setup({
-  split_height = 12,                    -- height of the terminal split
-  split_position = "auto",              -- "auto", "bottom", or "top"
+  layout = "split",                     -- "split", "float", or a function
+  split_height = 12,                    -- height of a top or bottom split
+  split_width = 80,                     -- width of a left or right split
+  split_position = "auto",              -- "auto", "bottom", "top", "left", or "right"
+  float = { width = 0.8, height = 0.8, border = "rounded" },
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",                 -- "none", "focus", or "insert"
   follow_repl = "none",
@@ -121,6 +125,33 @@ require("tarminal").setup({
   },
 })
 ```
+
+### Layout
+
+The terminal opens in a split by default, placed by `split_position`: `"auto"`
+follows `'splitbelow'`, and `"left"` or `"right"` give a full height side
+split `split_width` columns wide.
+
+`layout = "float"` opens it in a centered float instead, titled after the
+terminal. `float.width` and `float.height` are columns and lines, or a fraction
+of the editor when 1 or less. A float hides itself after `jump_to_error` so you
+land on the code rather than under it.
+
+For anything else pass a function. It gets the terminal buffer and returns the
+window to show it in:
+
+```lua
+require("tarminal").setup({
+  layout = function(buf)
+    vim.cmd("tabnew")
+    return vim.api.nvim_get_current_win()
+  end,
+})
+```
+
+Toggling hides every tarminal window, the shell and any REPLs, in every tab.
+The next toggle brings them all back where they were and at the size you left
+them, so a terminal in its own tab gets its tab back instead of a new one.
 
 ### Your own terminal setup
 
