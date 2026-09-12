@@ -135,6 +135,16 @@ local function osc7_cwd(seq)
   return path
 end
 
+-- a semantic prompt mark: C when a command starts and D with its status
+---@return string|nil mark, integer|nil code
+local function osc133(seq)
+  local mark, rest = seq:match("]133;(%u)([^\007\027]*)")
+  if not mark then
+    return nil
+  end
+  return mark, tonumber(rest:match("^;(%d+)"))
+end
+
 --- whether this OS can read a shell's cwd straight from the process
 ---@return boolean
 local function has_cwd_probe()
@@ -239,6 +249,7 @@ end
 M.parse_lsof_cwd = parse_lsof_cwd
 M.parse_procstat_cwd = parse_procstat_cwd
 M.osc7_cwd = osc7_cwd
+M.osc133 = osc133
 M.has_cwd_probe = has_cwd_probe
 M.prep_run_cache = prep_run_cache
 M.clear_cache = clear_cache

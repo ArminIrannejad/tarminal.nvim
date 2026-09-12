@@ -21,4 +21,8 @@ function M.sh_quote(s)
   return "'" .. s:gsub("'", [['\'']]) .. "'"
 end
 
+function M.emit(event, data)
+  vim.api.nvim_exec_autocmds("User", { pattern = event, modeline = false, data = data })
+end
+
 return M

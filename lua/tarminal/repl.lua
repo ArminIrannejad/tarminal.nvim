@@ -3,6 +3,7 @@
 local config = require("tarminal.config")
 local platform = require("tarminal.platform")
 local term = require("tarminal.term")
+local util = require("tarminal.util")
 
 local M = {}
 
@@ -123,6 +124,7 @@ local function get_or_start_repl(ft)
     return nil
   end
   vim.b[buf].repl_ft = ft
+  util.emit("TarminalOpen", { buf = buf, kind = "repl", ft = ft })
   term.term_cd(buf, dir)
   term.term_send_command(buf, repl_cmd)
   -- ensure the REPL came up before sending or source hits the shell
