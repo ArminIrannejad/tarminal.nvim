@@ -163,6 +163,34 @@ A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you
 started and walked away from can never be glued onto the run command.
 
+                                                      *tarminal-events*
+tarminal fires |User| autocmds with a data table (|nvim_create_autocmd()|
+`ev.data`):
+
+  TarminalOpen       a terminal opened: `buf`, `kind` ("shell" or "repl"),
+                     `ft` for a REPL. |b:is_shell| and |b:repl_ft| are set.
+  TarminalRunStart   a run or exec was sent: `buf`, `cmd`, `dir`
+  TarminalRunDone    the shell is back at its prompt: `buf`, `cmd`, `dir`,
+                     `duration` (milliseconds), `code` (exit status or nil)
+>lua
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunDone",
+      callback = function(ev)
+        if ev.data.duration > 5000 then
+          vim.notify(ev.data.cmd .. " done")
+        end
+      end,
+    })
+<
+Nothing extra is typed at the prompt. A run counts as done once the shell
+has the terminal back, found with the same probes as the busy check, so
+where no probe answers (OpenBSD) TarminalRunDone does not fire. The shell
+is polled every 200 ms, so `duration` is close but not exact for very short
+runs, and a run still waiting to be reported when the next one starts is
+reported first. `code` is
+set when the shell emits OSC 133 semantic prompt marks (fish 4 and many
+shell integrations), read on |TermRequest|; otherwise it is nil.
+
                                                 *tarminal-shell-integration*
 A relative path in error output resolves against the directory the shell is
 actually in — not the one it started in. Where the OS answers directly
