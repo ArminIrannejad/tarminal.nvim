@@ -19,6 +19,24 @@ describe("tarminal health", function()
     assert.is_nil(out:match("ERROR"), out)
   end)
 
+  it("flags a project runner whose tool is not installed", function()
+    require("tarminal").setup({
+      project_runners = {
+        { marker = "x.toml", cmd = "definitely-missing-tool run" },
+        {
+          marker = "y.toml",
+          cmd = function()
+            return "another-missing-tool go"
+          end,
+        },
+      },
+    })
+    local out = run_checkhealth()
+    require("tarminal").setup()
+    assert.is_truthy(out:find("x.toml (definitely-missing-tool)", 1, true), out)
+    assert.is_truthy(out:find("y.toml (another-missing-tool)", 1, true), out)
+  end)
+
   it("flags a shell that does not exist", function()
     require("tarminal").setup({ shell = "/definitely/missing-shell" })
     local out = run_checkhealth()

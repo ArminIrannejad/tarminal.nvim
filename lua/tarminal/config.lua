@@ -37,7 +37,8 @@
 ---@field banner boolean print a RUN banner before each run
 ---@field clear_run boolean wipe the terminal + scrollback before each run (not scrollable)
 ---@field shell_integration boolean emit + track cwd via OSC 7 where no OS probe answers
----@field runners table<string, string|tarminal.Runner> filetype -> run command
+---@field runners table<string, string|tarminal.Runner|fun(ctx: tarminal.RunContext): string?, string?> filetype -> run command
+---@field project_runners tarminal.ProjectRunner[]|false tried before runners
 ---@field compilers string[] program names built with `-o` then run
 ---@field repls table<string, string|tarminal.Repl> filetype -> REPL command
 ---@field error_patterns tarminal.ErrorPattern[] error formats tried in order
@@ -66,15 +67,34 @@
 ---@field run_binary boolean|nil true builds with `-o` then runs the binary
 ---@field args string|nil flags appended after the file
 
+---@class tarminal.ProjectRunner
+---@field marker string|string[] file or directory marking the project root
+---@field cmd string|fun(ctx: tarminal.RunContext, root: string): string? run as is from the root or nil to skip
+---@field ft string|string[]|nil filetypes it applies to or all when nil
+
 ---@class tarminal.Repl
 ---@field cmd string REPL command
 ---@field bracketed_paste boolean|nil false to send raw (can't parse paste escapes)
 ---@field block_open string|nil marker opening a multi-line block (ghci `:{`)
 ---@field block_close string|nil marker closing it (ghci `:}`)
 
+local util = require("tarminal.util")
+
 -- path chars with no whitespace colon brackets or quotes
 -- spaces and parens go through the fallback parser
 local PATH = "([^%s:%(%)%[%]<>'\"]+)"
+
+local function cargo_run(ctx, root)
+  local rel = ctx.file:sub(#root + 2)
+  for dir, flag in pairs({ examples = "--example", ["src/bin"] = "--bin" }) do
+    local name = rel:match("^" .. vim.pesc(dir) .. "/([^/]+)%.rs$")
+      or rel:match("^" .. vim.pesc(dir) .. "/([^/]+)/main%.rs$")
+    if name then
+      return "cargo run " .. flag .. " " .. util.sh_quote(name)
+    end
+  end
+  return "cargo run"
+end
 
 local defaults = {
   layout = "split",
@@ -132,6 +152,11 @@ local defaults = {
     typescript = "node",
     vim = { cmd = "nvim --headless -S", args = "+qa" },
     zig = "zig run",
+  },
+  -- tried in order before runners
+  project_runners = {
+    { marker = "Cargo.toml", cmd = cargo_run, ft = "rust" },
+    { marker = "build.zig", cmd = "zig build run", ft = "zig" },
   },
   -- only `cmd <src> -o <out>` compilers
   -- others need a run_binary runner

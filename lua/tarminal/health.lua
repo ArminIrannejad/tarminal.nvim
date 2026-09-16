@@ -161,6 +161,27 @@ local function check_commands()
     end
   end
 
+  local gone = {}
+  for _, p in ipairs(config.opts.project_runners or {}) do
+    local cmd = p.cmd
+    if type(cmd) == "function" then
+      local fine, got = pcall(cmd, { file = "", stem = "", dir = "", ft = "" }, "")
+      cmd = fine and got or nil
+    end
+    local exe = type(cmd) == "string" and cmd:match("%S+")
+    if exe and vim.fn.executable(exe) == 0 then
+      local marker = type(p.marker) == "table" and table.concat(p.marker, "|") or p.marker
+      gone[#gone + 1] = ("%s (%s)"):format(marker, exe)
+    end
+  end
+  if #gone == 0 then
+    ok("all project_runners are installed")
+  else
+    info(("project_runners not installed: %s"):format(table.concat(gone, ", ")), {
+      "Only matters inside those projects; override project_runners in setup() or install the tool.",
+    })
+  end
+
   if config.opts.time_runs and vim.fn.executable("time") == 0 then
     info("time_runs is on but no `time` binary is installed; runs will not be timed")
   end

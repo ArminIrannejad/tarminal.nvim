@@ -115,6 +115,111 @@ describe("tarminal run", function()
     assert.equals("/usr/bin/clang-17 -Wall '/tmp/example.c' -o 'example' && ./'example'", build(ctx))
   end)
 
+  local function project(files)
+    local root = vim.fn.resolve(vim.fn.tempname())
+    vim.fn.mkdir(root .. "/src/deep", "p")
+    for _, f in ipairs(files) do
+      vim.fn.writefile({}, root .. "/" .. f)
+    end
+    return root, { file = root .. "/src/deep/main.rs", stem = "main", dir = root .. "/src/deep", ft = "rust" }
+  end
+
+  it("runs the project runner from the root its marker names", function()
+    local root, ctx = project({ "Cargo.toml" })
+    tarminal.setup()
+    assert.same({ "cargo run", root }, { run.resolve_run(ctx) })
+
+    ctx.ft = "python"
+    ctx.file = root .. "/src/deep/main.py"
+    assert.same({ "python '" .. ctx.file .. "'", ctx.dir }, { run.resolve_run(ctx) })
+    vim.fn.delete(root, "rf")
+  end)
+
+  it("runs a cargo example or extra binary by its name", function()
+    local root = project({ "Cargo.toml" })
+    vim.fn.mkdir(root .. "/examples/multi", "p")
+    vim.fn.mkdir(root .. "/src/bin", "p")
+    tarminal.setup({ time_runs = false })
+    local function cmd_for(rel)
+      local file = root .. "/" .. rel
+      return (run.resolve_run({ file = file, stem = vim.fn.fnamemodify(file, ":t:r"), dir = "", ft = "rust" }))
+    end
+    assert.equals("cargo run --example 'demo'", cmd_for("examples/demo.rs"))
+    assert.equals("cargo run --example 'multi'", cmd_for("examples/multi/main.rs"))
+    assert.equals("cargo run --bin 'tool'", cmd_for("src/bin/tool.rs"))
+    assert.equals("cargo run", cmd_for("src/main.rs"))
+    vim.fn.delete(root, "rf")
+  end)
+
+  it("skips a project runner whose function returns nothing", function()
+    local root, ctx = project({ "Makefile" })
+    tarminal.setup({
+      time_runs = false,
+      project_runners = {
+        { marker = "Makefile", cmd = function() end },
+        {
+          marker = "Makefile",
+          cmd = function(c, r)
+            return "make " .. c.stem .. " # " .. r
+          end,
+        },
+      },
+    })
+    assert.same({ "make main # " .. root, root }, { run.resolve_run(ctx) })
+    vim.fn.delete(root, "rf")
+  end)
+
+  it("times project runners and runner functions too", function()
+    local root, ctx = project({ "Cargo.toml" })
+    tarminal.setup({ time_runs = true })
+    local prefix = vim.fn.executable("time") == 1 and "time " or ""
+    assert.equals(prefix .. "cargo run", (run.resolve_run(ctx)))
+    tarminal.setup({
+      time_runs = true,
+      project_runners = false,
+      runners = {
+        rust = function()
+          return "cargo test"
+        end,
+      },
+    })
+    assert.equals(prefix .. "cargo test", (run.resolve_run(ctx)))
+    vim.fn.delete(root, "rf")
+  end)
+
+  it("tries user project runners first and drops them all with false", function()
+    local root, ctx = project({ "Cargo.toml", "Makefile" })
+    tarminal.setup({ project_runners = { { marker = "Makefile", cmd = "make run" } } })
+    assert.same({ "make run", root }, { run.resolve_run(ctx) })
+
+    tarminal.setup({ project_runners = false })
+    assert.same({ "rustc '" .. ctx.file .. "' -o 'main' && ./'main'", ctx.dir }, { run.resolve_run(ctx) })
+    vim.fn.delete(root, "rf")
+  end)
+
+  it("lets a runner function build the command and pick the dir", function()
+    local seen
+    tarminal.setup({
+      project_runners = false,
+      runners = {
+        rust = function(ctx)
+          seen = vim.deepcopy(ctx)
+          ctx.file = "/elsewhere.rs"
+          return "cargo test " .. ctx.stem, "/somewhere"
+        end,
+        python = function()
+          return "pytest"
+        end,
+      },
+    })
+    local ctx = { file = "/tmp/x/main.rs", stem = "main", dir = "/tmp/x", ft = "rust" }
+    assert.same({ "cargo test main", "/somewhere" }, { run.resolve_run(ctx) })
+    assert.same(ctx, seen)
+    assert.equals("/tmp/x/main.rs", ctx.file)
+    ctx.ft = "python"
+    assert.same({ "pytest", "/tmp/x" }, { run.resolve_run(ctx) })
+  end)
+
   it("runs a named file with its configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
