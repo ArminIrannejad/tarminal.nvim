@@ -164,8 +164,10 @@ local function execute_in_shell(cmd, dir)
     start_row = 0
   end
 
-  if banner or config.opts.park_on_error then
-    errors.watch_run_output(term_buf, banner, start_row, config.opts.park_on_error)
+  errors.clear_diagnostics()
+  local scan = config.opts.park_on_error or config.opts.diagnostics
+  if banner or scan then
+    errors.watch_run_output(term_buf, banner, start_row, scan)
   end
   term.term_send_command(term_buf, full, cancel_pending)
   vim.b[term_buf].term_cwd = dir

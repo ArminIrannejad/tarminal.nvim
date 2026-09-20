@@ -30,6 +30,12 @@ local function register()
     group = group,
     callback = errors.define_highlight,
   })
+  vim.api.nvim_create_autocmd("BufReadPost", {
+    group = group,
+    callback = function(ev)
+      errors.flush_diagnostics(ev.buf)
+    end,
+  })
   vim.api.nvim_create_autocmd("VimResized", {
     group = group,
     callback = term.refit_floats,

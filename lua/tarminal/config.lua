@@ -28,6 +28,7 @@
 ---@field follow_repl tarminal.Follow
 ---@field autosave boolean write the buffer before a run else use disk
 ---@field park_on_error boolean highlight errors and park on the first
+---@field diagnostics boolean publish run errors as vim.diagnostic in their files
 ---@field close_on_jump boolean close the terminal after jump_to_error lands
 ---@field keep_term_name boolean keep the term:// buffer name instead of tarminal://
 ---@field any_terminal boolean navigate errors in terminals tarminal did not open
@@ -107,6 +108,7 @@ local defaults = {
   follow_repl = "none",
   autosave = true,
   park_on_error = true,
+  diagnostics = false,
   close_on_jump = false,
   keep_term_name = false,
   any_terminal = false,
