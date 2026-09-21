@@ -109,6 +109,7 @@ require("tarminal").setup({
   follow_repl = "none",
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
+  diagnostics = false,                  -- show run errors as diagnostics in their files
   close_on_jump = false,                -- close the terminal once jump_to_error lands
   keep_term_name = false,               -- keep the term:// name instead of tarminal://shell
   any_terminal = false,                 -- navigate errors in terminals tarminal did not open
@@ -349,6 +350,20 @@ Pressing Enter (`jump_to_error`) on a line always jumps to its location, whateve
 the severity. Set `close_on_jump = true` to close the terminal on the way out, so
 you land on the error with the split gone — the same thing `quickfix.close_terminal`
 does for `errors_to_quickfix`.
+
+### Diagnostics
+
+Set `diagnostics = true` to also publish the locations a run prints as
+`vim.diagnostic` entries in the files they point at, so they show inline next
+to your code and in `vim.diagnostic.setqflist()` or any diagnostics picker.
+
+The message is the text after the location. When nothing follows it, as with
+rustc's `--> file:line:col`, it is the line above. Python traceback frames get
+the exception their traceback ends in, like `ValueError: bad (in f)`.
+
+They respect `error_threshold`, come from the `tarminal` source, and are
+cleared when the next run starts. No buffers are created for them: a file you
+don't have open gets its diagnostics when you open it.
 
 ## License
 
