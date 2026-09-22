@@ -3,6 +3,9 @@ describe("tarminal health", function()
 
   local function run_checkhealth()
     vim.cmd("checkhealth tarminal")
+    vim.wait(5000, function()
+      return vim.bo.filetype == "checkhealth"
+    end, 20)
     local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
     vim.cmd("bwipeout!")
     return table.concat(lines, "\n")
