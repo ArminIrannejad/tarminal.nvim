@@ -111,11 +111,13 @@ local function open_shell_term(name)
   end
   vim.b[buf].term_cwd = vim.fn.getcwd()
 
-  vim.opt_local.number = false
-  vim.opt_local.relativenumber = false
-  vim.opt_local.scrolloff = 0
+  for name, value in pairs(config.opts.win_opts) do
+    vim.opt_local[name] = value
+  end
   vim.bo[buf].filetype = "tarminal"
-  pcall(vim.api.nvim_buf_set_name, buf, name)
+  if not config.opts.keep_term_name then
+    pcall(vim.api.nvim_buf_set_name, buf, name)
+  end
 
   return buf, win
 end

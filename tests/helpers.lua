@@ -70,7 +70,7 @@ end
 function M.find_term_buf()
   local found
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.bo[buf].filetype == "tarminal" then
+    if require("tarminal.util").owns(buf) then
       found = buf
     end
   end

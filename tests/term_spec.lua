@@ -168,6 +168,59 @@ describe("tarminal term", function()
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 
+  it("keeps the term name with keep_term_name so user term autocmds still match", function()
+    local hits = {}
+    local group = vim.api.nvim_create_augroup("tarminal-test-term", { clear = true })
+    for _, event in ipairs({ "BufEnter", "TermClose" }) do
+      vim.api.nvim_create_autocmd(event, {
+        group = group,
+        pattern = "term://*",
+        callback = function()
+          hits[event] = true
+        end,
+      })
+    end
+
+    tarminal.setup({ keep_term_name = true })
+    tarminal.toggle()
+    local buf = vim.api.nvim_get_current_buf()
+    assert.is_truthy(vim.startswith(vim.api.nvim_buf_get_name(buf), "term://"))
+    vim.cmd("wincmd p")
+    vim.cmd("wincmd p")
+    vim.fn.jobstop(vim.b[buf].terminal_job_id)
+    vim.wait(2000, function()
+      return hits.TermClose
+    end, 20)
+    vim.api.nvim_del_augroup_by_id(group)
+
+    assert.is_true(hits.BufEnter)
+    assert.is_true(hits.TermClose)
+  end)
+
+  it("sets win_opts on a new terminal and leaves the rest alone", function()
+    local group = vim.api.nvim_create_augroup("tarminal-test-winopts", { clear = true })
+    vim.api.nvim_create_autocmd("TermOpen", {
+      group = group,
+      callback = function()
+        vim.opt_local.number = true
+        vim.opt_local.scrolloff = 5
+      end,
+    })
+
+    tarminal.toggle()
+    assert.is_false(vim.wo.number)
+    assert.equals(0, vim.wo.scrolloff)
+    tarminal.toggle()
+    vim.api.nvim_buf_delete(term.find_live_terminal("is_shell", true), { force = true })
+
+    tarminal.setup({ win_opts = { signcolumn = "yes" } })
+    tarminal.toggle()
+    vim.api.nvim_del_augroup_by_id(group)
+    assert.is_true(vim.wo.number)
+    assert.equals(5, vim.wo.scrolloff)
+    assert.equals("yes", vim.wo.signcolumn)
+  end)
+
   it("fires FileType tarminal so users can add buffer-local keymaps", function()
     local mapped_buf
     local autocmd = vim.api.nvim_create_autocmd("FileType", {

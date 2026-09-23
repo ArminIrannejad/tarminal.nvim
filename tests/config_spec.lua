@@ -36,6 +36,11 @@ describe("tarminal config", function()
     assert.is_false(tarminal.config.time_runs)
   end)
 
+  it("replaces win_opts whole so an empty table sets nothing", function()
+    tarminal.setup({ win_opts = {} })
+    assert.same({}, tarminal.config.win_opts)
+  end)
+
   it("setup resets previous options", function()
     tarminal.setup({ split_height = 20 })
     tarminal.setup()

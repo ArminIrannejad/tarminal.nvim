@@ -106,6 +106,9 @@ require("tarminal").setup({
   autosave = true,
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   close_on_jump = false,                -- close the terminal once jump_to_error lands
+  keep_term_name = false,               -- keep the term:// name instead of tarminal://shell
+  any_terminal = false,                 -- navigate errors in terminals tarminal did not open
+  win_opts = { number = false, relativenumber = false, scrolloff = 0 },
   error_threshold = 0,                  -- min severity to act on: 0 note, 1 warning, 2 error
   cell_marker = "# COMMAND ----------", -- line that delimits REPL "cells"
   time_runs = false,                    -- time the run (for compiled files: the binary)
@@ -118,6 +121,29 @@ require("tarminal").setup({
   },
 })
 ```
+
+### Your own terminal setup
+
+tarminal opens plain `:terminal` buffers and adds to them rather than taking
+over. Your `TermOpen` autocmds still run, and the `tarminal` filetype is set on
+top so `FileType tarminal` can add what you only want there.
+
+The buffers are named `tarminal://shell` and `tarminal://repl:<filetype>`. Set
+`keep_term_name = true` to keep Neovim's own `term://` name instead, so your
+`BufEnter term://*` and `TermClose term://*` autocmds fire in them too.
+
+To tell tarminal's terminals apart in your own code, check `vim.b.is_shell`
+(the shell terminal) and `vim.b.repl_ft` (the filetype a REPL terminal belongs
+to). tarminal goes by these rather than the filetype, so changing it breaks
+nothing.
+
+`win_opts` are the window options set on a new terminal after your `TermOpen`
+autocmds ran. They replace the default table whole, so `win_opts = {}` leaves
+your own settings untouched.
+
+Error navigation only acts on tarminal's own terminals by default. Set
+`any_terminal = true` to use `jump_to_error`, `next_error`, `prev_error` and
+`errors_to_quickfix` in any terminal, like one from another terminal plugin.
 
 ### Runs
 

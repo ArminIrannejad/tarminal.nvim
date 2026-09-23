@@ -6,6 +6,7 @@ local platform = require("tarminal.platform")
 local repl = require("tarminal.repl")
 local run = require("tarminal.run")
 local state = require("tarminal.state")
+local util = require("tarminal.util")
 
 local M = {}
 
@@ -37,7 +38,7 @@ local function register()
   vim.api.nvim_create_autocmd("TermRequest", {
     group = group,
     callback = function(ev)
-      if vim.bo[ev.buf].filetype ~= "tarminal" then
+      if not util.owns(ev.buf) then
         return
       end
       -- 0.11 wraps the sequence in a table and 0.10 passes a bare string
