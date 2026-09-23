@@ -264,6 +264,71 @@ local WATCH_TIMEOUT = 30000
 local QUIET_GRACE = 1000
 
 local ns = vim.api.nvim_create_namespace("tarminal.errors")
+local diag_ns = vim.api.nvim_create_namespace("tarminal.diagnostics")
+
+local DIAG_SEVERITY =
+  { [0] = vim.diagnostic.severity.INFO, vim.diagnostic.severity.WARN, vim.diagnostic.severity.ERROR }
+
+local published
+local pending = {}
+
+local function path_key(path)
+  return vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+end
+
+local function clear_diagnostics()
+  published, pending = nil, {}
+  vim.diagnostic.reset(diag_ns)
+end
+
+local function diag_message(lines, first, last, span_e, term_buf, min_row)
+  local logical = table.concat(lines, "", first, last)
+  local rest = vim.trim((logical:sub(span_e + 1):gsub("^[%s:,]+", "")))
+  if vim.trim(logical):match('^File "') then
+    for i = last + 1, #lines do
+      if lines[i]:match("^%S") then
+        return vim.trim(lines[i]) .. (rest ~= "" and " (" .. rest .. ")" or "")
+      end
+    end
+  end
+  if rest ~= "" then
+    return rest
+  end
+  local above = first - 1 > min_row and vim.trim(lines[first - 1]) or ""
+  if above ~= "" and not parse_error_line(above, term_buf) then
+    return above
+  end
+  return vim.trim(logical)
+end
+
+---@param by_file table<string, vim.Diagnostic[]>
+local function publish_diagnostics(by_file)
+  if vim.deep_equal(by_file, published) then
+    return
+  end
+  clear_diagnostics()
+  published = vim.deepcopy(by_file)
+  local bufs = {}
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    bufs[path_key(vim.api.nvim_buf_get_name(buf))] = buf
+  end
+  for file, items in pairs(by_file) do
+    local key = path_key(file)
+    if bufs[key] then
+      vim.diagnostic.set(diag_ns, bufs[key], items)
+    else
+      pending[key] = items
+    end
+  end
+end
+
+local function flush_diagnostics(buf)
+  local key = path_key(vim.api.nvim_buf_get_name(buf))
+  if pending[key] then
+    vim.diagnostic.set(diag_ns, buf, pending[key])
+    pending[key] = nil
+  end
+end
 
 local function severity_hl(sev)
   return (sev or 2) >= 2 and "TarminalError" or "TarminalWarning"
@@ -398,12 +463,24 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
         return
       end
 
+      local park = config.opts.park_on_error
+      local diags = config.opts.diagnostics and {}
       vim.api.nvim_buf_clear_namespace(term_buf, ns, banner_row, -1)
       local width = pty_width(term_buf)
       local i = banner_row + 1
       while i <= #lines do
-        local first, last, file, _, _, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf, i)
-        if file then
+        local first, last, file, lnum, col, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf, i)
+        if file and diags and sev >= config.opts.error_threshold then
+          diags[file] = diags[file] or {}
+          table.insert(diags[file], {
+            lnum = math.max((lnum or 1) - 1, 0),
+            col = math.max((col or 1) - 1, 0),
+            severity = DIAG_SEVERITY[sev],
+            message = diag_message(lines, first, last, span_e, term_buf, banner_row),
+            source = "tarminal",
+          })
+        end
+        if file and park then
           highlight_span(term_buf, lines, first, last, span_s, span_e, severity_hl(sev))
           if not parked and sev >= config.opts.error_threshold then
             parked = true
@@ -413,6 +490,9 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
           end
         end
         i = last + 1
+      end
+      if diags then
+        publish_diagnostics(diags)
       end
     end)
   )
@@ -521,6 +601,9 @@ local function define_error_highlight()
 end
 
 M.ns = ns
+M.diag_ns = diag_ns
+M.clear_diagnostics = clear_diagnostics
+M.flush_diagnostics = flush_diagnostics
 M.parse_error_line = parse_error_line
 M.logical_line_at = logical_line_at
 M.scan_logical_at = scan_logical_at

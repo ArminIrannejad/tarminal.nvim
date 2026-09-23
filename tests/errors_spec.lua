@@ -790,6 +790,150 @@ describe("tarminal errors", function()
     vim.fn.delete(script)
   end)
 
+  it("publishes run errors as diagnostics and clears them on the next run", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;", "int c;" }, file)
+    local errors = require("tarminal.errors")
+    tarminal.setup({ diagnostics = true, follow_run = "none" })
+
+    tarminal.exec(("printf '%%s:2:5: error: bad thing\\n%%s:3:1: warning: meh\\n' %s %s"):format(file, file), true)
+    local buf = vim.fn.bufadd(file)
+    local got = vim.wait(8000, function()
+      return #vim.diagnostic.get(buf, { namespace = errors.diag_ns }) == 2
+    end, 50)
+    assert.is_true(got)
+
+    local diags = vim.diagnostic.get(buf, { namespace = errors.diag_ns })
+    table.sort(diags, function(a, b)
+      return a.lnum < b.lnum
+    end)
+    assert.same({ 1, 4 }, { diags[1].lnum, diags[1].col })
+    assert.equals("bad thing", diags[1].message)
+    assert.equals(vim.diagnostic.severity.ERROR, diags[1].severity)
+    assert.equals(vim.diagnostic.severity.WARN, diags[2].severity)
+
+    helpers.wait_run_finished(helpers.find_term_buf(), 1)
+    tarminal.exec("true", true)
+    assert.equals(0, #vim.diagnostic.get(buf, { namespace = errors.diag_ns }))
+    vim.fn.delete(file)
+  end)
+
+  local function run_diags(file, script_lines)
+    local errors = require("tarminal.errors")
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile(script_lines, script)
+    vim.cmd("badd " .. vim.fn.fnameescape(file))
+    local buf = vim.fn.bufnr(file)
+    tarminal.setup({ diagnostics = true, follow_run = "none" })
+    tarminal.exec("sh " .. script, true)
+    vim.wait(8000, function()
+      return #vim.diagnostic.get(buf, { namespace = errors.diag_ns }) > 0
+    end, 50)
+    helpers.wait_run_finished(helpers.find_term_buf(), 1)
+    vim.fn.delete(script)
+    return vim.diagnostic.get(buf, { namespace = errors.diag_ns }), buf
+  end
+
+  it("takes a rustc message from the line above its location", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".rs"
+    vim.fn.writefile({ "fn main() {", "    x;", "}" }, file)
+    local diags = run_diags(file, {
+      "printf 'error[E0425]: cannot find value x in this scope\\n'",
+      ("printf '  --> %s:2:5\\n'"):format(file),
+    })
+    vim.fn.delete(file)
+    assert.equals(1, #diags)
+    assert.equals("error[E0425]: cannot find value x in this scope", diags[1].message)
+  end)
+
+  it("gives python frames the exception their traceback ends in", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".py"
+    vim.fn.writefile({ "def f():", "    raise ValueError('bad')", "f()" }, file)
+    local diags = run_diags(file, {
+      "printf 'Traceback (most recent call last):\\n'",
+      ("printf '  File \"%s\", line 3, in <module>\\n    f()\\n'"):format(file),
+      ("printf '  File \"%s\", line 2, in f\\n    raise\\n'"):format(file),
+      "printf 'ValueError: bad\\n'",
+    })
+    vim.fn.delete(file)
+    table.sort(diags, function(a, b)
+      return a.lnum < b.lnum
+    end)
+    assert.equals("ValueError: bad (in f)", diags[1].message)
+    assert.equals("ValueError: bad (in <module>)", diags[2].message)
+  end)
+
+  it("does not take the banner as a message", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local diags = run_diags(file, { ("printf '%%s:2:\\n' %s"):format(file) })
+    vim.fn.delete(file)
+    assert.equals(file .. ":2:", diags[1].message)
+  end)
+
+  it("republishes only when the errors change", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local errors = require("tarminal.errors")
+    vim.cmd("badd " .. vim.fn.fnameescape(file))
+    local buf = vim.fn.bufnr(file)
+    local count = 0
+    local id = vim.api.nvim_create_autocmd("DiagnosticChanged", {
+      callback = function(ev)
+        if ev.buf == buf then
+          count = count + 1
+        end
+      end,
+    })
+    tarminal.setup({ diagnostics = true, follow_run = "none" })
+    tarminal.exec(
+      ("printf '%%s:2:1: error: e\\n' %s; for i in 1 2 3 4 5; do echo noise $i; sleep 0.3; done"):format(file),
+      true
+    )
+    assert.is_true(vim.wait(8000, function()
+      return #vim.diagnostic.get(buf, { namespace = errors.diag_ns }) == 1
+    end, 20))
+    local after_first = count
+    assert.is_true(helpers.wait_run_finished(helpers.find_term_buf(), 1, "noise 5"))
+    vim.api.nvim_del_autocmd(id)
+    vim.fn.delete(file)
+    assert.equals(after_first, count)
+  end)
+
+  it("holds diagnostics for an unopened file until it is read", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local errors = require("tarminal.errors")
+    tarminal.setup({ diagnostics = true, follow_run = "none" })
+    tarminal.exec(("printf '%%s:2:1: error: late\\n' %s"):format(file), true)
+    assert.is_true(helpers.wait_run_finished(helpers.find_term_buf(), 1))
+    vim.wait(1000, function()
+      return false
+    end, 50)
+    assert.equals(-1, vim.fn.bufnr(file))
+
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    local diags = vim.diagnostic.get(0, { namespace = errors.diag_ns })
+    vim.fn.delete(file)
+    assert.equals(1, #diags)
+    assert.equals("late", diags[1].message)
+  end)
+
+  it("publishes no diagnostics by default", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local errors = require("tarminal.errors")
+    tarminal.setup({ follow_run = "none" })
+
+    tarminal.exec(("printf '%%s:2:1: error: e\\n' %s"):format(file), true)
+    local term_buf = helpers.find_term_buf()
+    assert.is_true(vim.wait(8000, function()
+      return #vim.api.nvim_buf_get_extmarks(term_buf, errors.ns, 0, -1, {}) > 0
+    end, 50))
+    assert.equals(0, #vim.diagnostic.get(vim.fn.bufadd(file), { namespace = errors.diag_ns }))
+    vim.fn.delete(file)
+  end)
+
   it("refuses error navigation in a terminal it did not create", function()
     vim.fn.setqflist({})
     vim.cmd("terminal")

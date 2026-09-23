@@ -50,6 +50,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       follow_run = "focus",     -- "none" | "focus" | "insert"
       follow_repl = "none",
       park_on_error = true,
+      diagnostics = false,      -- publish run errors with vim.diagnostic
       close_on_jump = false,    -- close the terminal once jump_to_error lands
       keep_term_name = false,   -- keep the term:// name instead of tarminal://
       any_terminal = false,     -- navigate errors in terminals tarminal did not open
@@ -270,6 +271,21 @@ or a fixed "error"/"warning"/"info". Warnings are highlighted with
 errors (next_error/prev_error) and collecting (set it to 2 to ignore
 warnings). An explicit jump_to_error on the current line always jumps,
 whatever the severity.
+
+                                                  *tarminal-diagnostics*
+With `diagnostics = true` the locations a run prints are also published as
+|vim.diagnostic| entries on the files they point at, from the "tarminal"
+source, so they show inline and in any diagnostics list. The message is the
+text after the location. With nothing after it, the message is the line
+above (rustc and cargo print the error there) or else the whole line. A
+Python traceback frame gets the exception line its traceback ends in, with
+the frame's own text after it: "ValueError: bad (in f)".
+
+Locations below `error_threshold` are skipped, and everything is cleared
+when the next run starts. They are only republished when the set changes,
+so a noisy run does not keep firing |DiagnosticChanged|. No buffer is
+created for them: a file that is not open gets its diagnostics when it is
+read. Terminal highlighting and parking stay with `park_on_error`.
 
 With `close_on_jump = true` a successful jump_to_error closes the terminal
 window on its way out, leaving you on the error with the split gone — what
