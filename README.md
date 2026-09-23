@@ -258,6 +258,46 @@ Common compilers such as `cc`, `gcc`, `clang`, and `rustc` are detected and
 the built program is run. Use `run_binary = true` or `false` when you want to
 choose that behavior yourself. `args` is added after the file path.
 
+A runner can also be a function. It gets the file, its stem, dir, and filetype
+and returns the command to run as is, plus an optional directory to run it in:
+
+```lua
+runners = {
+  python = function(ctx)
+    if ctx.file:match("test_[^/]*%.py$") then
+      return "pytest " .. vim.fn.shellescape(ctx.file)
+    end
+    return "python " .. vim.fn.shellescape(ctx.file)
+  end,
+},
+```
+
+### Project runners
+
+Inside a project the file is often the wrong thing to run. `project_runners`
+are tried first: when a `marker` file is found above the current file, `cmd`
+runs as is from that directory. The defaults run `cargo run` under a
+`Cargo.toml` (with `--example <name>` for files in `examples/` and `--bin
+<name>` for files in `src/bin/`) and `zig build run` under a `build.zig`.
+
+```lua
+require("tarminal").setup({
+  project_runners = {
+    { marker = "Makefile", cmd = "make run", ft = { "c", "cpp" } },
+    { marker = "package.json", cmd = "npm start", ft = "javascript" },
+  },
+})
+```
+
+Your entries are tried before the defaults. `ft` limits an entry to some
+filetypes and leaving it out applies it to all. `cmd` can also be a function
+that gets the run context and the project root and returns the command, or
+nothing to try the next entry. Set `project_runners = false` to always run the
+file.
+
+Runner functions and project runners are timed with `time_runs` like any other
+run, and get a copy of the context so they can't change what a re-run uses.
+
 
 ### REPLs
 

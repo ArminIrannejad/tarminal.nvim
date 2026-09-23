@@ -65,6 +65,10 @@ Calling the setup function is optional; do it only to override defaults: >lua
         c = "cc",
         ...
       },
+      project_runners = {        -- tried before runners, yours first
+        { marker = "Cargo.toml", cmd = ..., ft = "rust" },  -- cargo run
+        { marker = "build.zig", cmd = "zig build run", ft = "zig" },
+      },
       compilers = {
         "cc", "gcc", "clang", "g++", "clang++", "c++",
         "rustc", "ghc", "swiftc", "gdc", "ocamlopt", "ocamlc",
@@ -142,6 +146,26 @@ foo.zig`), it just does not produce and run a separate binary. With
 `time_runs = true`, runs are timed only when a `time` binary is installed
 (the shell keyword is not relied on); for compiled files only the produced
 binary is timed, not compilation.
+
+A runner entry can also be a function taking the run context (`file`,
+`stem`, `dir`, `ft`) and returning the command, used as is, and optionally
+the directory to run it in (default `dir`).
+
+                                                  *tarminal-project-runners*
+`project_runners` are tried before `runners`. Each has a `marker` (a name or
+list of names, as for |vim.fs.root()|), a `cmd` and an optional `ft` (a
+filetype or list, all when left out). The first entry whose marker is found
+above the file wins, and its `cmd` runs as is from that root, without the
+file appended. `cmd` can also be a function taking the run context and the
+root and returning the command, or nil to try the next entry. Your entries
+are tried before the defaults: `cargo run` for a Cargo.toml, with
+`--example <name>` for a file under examples/ and `--bin <name>` for one
+under src/bin/, and `zig build run` for a build.zig. `project_runners =
+false` turns them all off.
+
+Runner functions and project runners are timed with `time_runs` like any
+other run, receive a copy of the run context, and are checked by
+|tarminal-checkhealth| along with the filetype runners.
 
 By default (`clear_run = true`) the terminal and its scrollback are wiped
 before each run, so the screen holds that run's output and nothing else: the

@@ -209,7 +209,7 @@ local function runner_spec(ft)
     cmd, run_binary, args = spec.cmd, spec.run_binary, spec.args
   end
   if run_binary == nil then
-    run_binary = cmd ~= nil and is_compiler(cmd)
+    run_binary = type(cmd) == "string" and is_compiler(cmd)
   end
   return cmd, run_binary, args
 end
@@ -218,7 +218,7 @@ end
 ---@return string|nil
 local function build_runner_command(ctx)
   local runner, run_binary, args = runner_spec(ctx.ft)
-  if not runner then
+  if not runner or type(runner) == "function" then
     return
   end
 
@@ -234,6 +234,50 @@ local function build_runner_command(ctx)
     return ("%s %s%s -o %s && %s./%s"):format(runner, file, suffix, out, time, out)
   end
   return time .. runner .. " " .. file .. suffix
+end
+
+local function applies(ft, want)
+  if want == nil then
+    return true
+  end
+  return type(want) == "table" and vim.tbl_contains(want, ft) or want == ft
+end
+
+---@param ctx tarminal.RunContext
+---@return string|nil cmd, string|nil dir
+local function project_command(ctx)
+  for _, p in ipairs(config.opts.project_runners or {}) do
+    if applies(ctx.ft, p.ft) then
+      local root = vim.fs.root(ctx.file, p.marker)
+      local cmd = p.cmd
+      if root and type(cmd) == "function" then
+        cmd = cmd(vim.deepcopy(ctx), root)
+      end
+      if root and cmd then
+        return cmd, root
+      end
+    end
+  end
+end
+
+local function timed(cmd)
+  return config.opts.time_runs and vim.fn.executable("time") == 1 and "time " .. cmd or cmd
+end
+
+-- a project runner then a runner function then the filetype runner
+---@param ctx tarminal.RunContext
+---@return string|nil cmd, string|nil dir
+local function resolve_run(ctx)
+  local cmd, dir = project_command(ctx)
+  if cmd then
+    return timed(cmd), dir
+  end
+  local spec = config.opts.runners[ctx.ft]
+  if type(spec) == "function" then
+    cmd, dir = spec(vim.deepcopy(ctx))
+    return cmd and timed(cmd), dir or ctx.dir
+  end
+  return build_runner_command(ctx), ctx.dir
 end
 
 ---@return boolean ok
@@ -278,7 +322,7 @@ function M.run()
     end
   end
 
-  local runner_cmd = build_runner_command(ctx)
+  local runner_cmd, dir = resolve_run(ctx)
   if not runner_cmd then
     -- don't remember an unsupported file (keep the last one that ran)
     vim.notify("No runner configured for filetype: " .. ctx.ft, vim.log.levels.WARN)
@@ -288,7 +332,7 @@ function M.run()
   if from_file then
     state._last_run = ctx
   end
-  execute_in_shell(runner_cmd, ctx.dir)
+  execute_in_shell(runner_cmd, dir)
 end
 
 ---@param arg string|table|nil command or :Tarminal callback data or nil
@@ -331,5 +375,6 @@ function M.exec(arg, verbatim)
 end
 
 M.build_runner_command = build_runner_command
+M.resolve_run = resolve_run
 
 return M
