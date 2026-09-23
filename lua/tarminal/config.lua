@@ -9,10 +9,20 @@
 ---| '"auto"'   # follow 'splitbelow'
 ---| '"bottom"' # always bottom
 ---| '"top"'    # always top
+---| '"left"'   # full height on the left
+---| '"right"'  # full height on the right
+
+---@alias tarminal.Layout
+---| '"split"'                   # split placed by split_position
+---| '"float"'                   # centered floating window
+---| fun(buf: integer): integer  # open a window for buf and return it
 
 ---@class tarminal.Config
+---@field layout tarminal.Layout
 ---@field split_height integer
+---@field split_width integer width of a left or right split
 ---@field split_position tarminal.SplitPosition
+---@field float tarminal.Float
 ---@field shell string
 ---@field follow_run tarminal.Follow
 ---@field follow_repl tarminal.Follow
@@ -33,6 +43,11 @@
 ---@field error_patterns tarminal.ErrorPattern[] error formats tried in order
 ---@field error_threshold integer min severity to park/step/collect (0 note 1 warn 2 error)
 ---@field quickfix tarminal.Quickfix
+
+---@class tarminal.Float
+---@field width number columns or a fraction of the editor at most 1
+---@field height number lines or a fraction of the editor at most 1
+---@field border string|string[]
 
 ---@class tarminal.Quickfix
 ---@field open boolean open quickfix after collecting
@@ -62,8 +77,11 @@
 local PATH = "([^%s:%(%)%[%]<>'\"]+)"
 
 local defaults = {
+  layout = "split",
   split_height = 12,
+  split_width = 80,
   split_position = "auto",
+  float = { width = 0.8, height = 0.8, border = "rounded" },
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",
   follow_repl = "none",

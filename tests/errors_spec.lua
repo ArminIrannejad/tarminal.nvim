@@ -647,6 +647,35 @@ describe("tarminal errors", function()
     vim.fn.delete(script)
   end)
 
+  it("hides a floating terminal after a jump so the code is not under it", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ ("printf '%%s:2:1: error: e\\n' %s"):format(file), "sleep 10" }, script)
+    tarminal.setup({ shell = "sh " .. script, layout = "float" })
+
+    vim.cmd("enew")
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.jump_to_error()
+
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.is_false(vim.api.nvim_win_is_valid(term_win))
+    tarminal.toggle()
+    assert.equals(term_buf, vim.api.nvim_get_current_buf())
+    assert.equals("editor", vim.api.nvim_win_get_config(0).relative)
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
   it("leaves the terminal open when close_on_jump finds no location", function()
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({ "printf 'no location here\\n'", "sleep 10" }, script)

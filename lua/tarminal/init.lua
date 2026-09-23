@@ -6,6 +6,7 @@ local platform = require("tarminal.platform")
 local repl = require("tarminal.repl")
 local run = require("tarminal.run")
 local state = require("tarminal.state")
+local term = require("tarminal.term")
 local util = require("tarminal.util")
 
 local M = {}
@@ -28,6 +29,10 @@ local function register()
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = group,
     callback = errors.define_highlight,
+  })
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = group,
+    callback = term.refit_floats,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {
     group = group,
@@ -60,6 +65,7 @@ register()
 ---@param opts tarminal.Config|nil optional table merged over the defaults
 function M.setup(opts)
   config.setup(opts)
+  term.forget_hidden()
 end
 
 setmetatable(M, {

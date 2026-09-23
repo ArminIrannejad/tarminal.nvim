@@ -7,16 +7,127 @@ local util = require("tarminal.util")
 
 local M = {}
 
-local function terminal_split()
-  local pos = config.opts.split_position
+---@return integer win, string pos
+local function split_window(pos, size)
+  pos = pos or config.opts.split_position
   if pos == "auto" then
     pos = vim.o.splitbelow and "bottom" or "top"
   end
-  vim.cmd(pos == "top" and "topleft split" or "botright split")
+  local vertical = pos == "left" or pos == "right"
+  local cmd = vertical and "vsplit" or "split"
+  vim.cmd(((pos == "top" or pos == "left") and "topleft " or "botright ") .. cmd)
   local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_height(win, config.opts.split_height)
-  vim.wo.winfixheight = true
+  if vertical then
+    vim.api.nvim_win_set_width(win, size or config.opts.split_width)
+    vim.wo.winfixwidth = true
+  else
+    vim.api.nvim_win_set_height(win, size or config.opts.split_height)
+    vim.wo.winfixheight = true
+  end
+  return win, pos
+end
+
+local titles = {}
+
+-- sizes up to 1 are a fraction of the editor
+local function float_config(title)
+  local f = config.opts.float
+  local lines = vim.o.lines - vim.o.cmdheight
+  local function size(v, total)
+    v = v <= 1 and math.floor(total * v) or v
+    return math.max(math.min(v, total - 2), 1)
+  end
+  local width, height = size(f.width, vim.o.columns), size(f.height, lines)
+  local cfg = {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = math.floor((lines - height) / 2) - 1,
+    col = math.floor((vim.o.columns - width) / 2) - 1,
+    border = f.border,
+  }
+  if title and f.border and f.border ~= "none" and f.border ~= "" then
+    cfg.title = " " .. title .. " "
+    cfg.title_pos = "center"
+  end
+  return cfg
+end
+
+---@class tarminal.Placement
+---@field kind string "split" "float" or "custom"
+---@field pos string|nil side of a split
+---@field size integer|nil width or height of a split
+
+---@type table<integer, tarminal.Placement>
+local placed = {}
+---@type { buf: integer, spec: tarminal.Placement }[]
+local hidden = {}
+
+---@param spec tarminal.Placement|nil where it was before or the configured layout
+---@return integer win showing buf and current
+local function open_window(buf, spec)
+  local layout = config.opts.layout
+  local kind = spec and spec.kind
+    or (layout == "float" and "float" or type(layout) == "function" and "custom" or "split")
+  local win, pos
+  if kind == "float" then
+    win = vim.api.nvim_open_win(buf, true, float_config(titles[buf]))
+  elseif kind == "custom" and type(layout) == "function" then
+    win = layout(buf)
+    vim.api.nvim_set_current_win(win)
+  else
+    kind = "split"
+    win, pos = split_window(spec and spec.pos, spec and spec.size)
+  end
+  if vim.api.nvim_win_get_buf(win) ~= buf then
+    vim.api.nvim_win_set_buf(win, buf)
+  end
+  placed[win] = { kind = kind, pos = pos }
   return win
+end
+
+-- keep open floats centered when the editor resizes
+local function refit_floats()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local p = placed[win]
+    if p and p.kind == "float" then
+      vim.api.nvim_win_set_config(win, float_config(titles[vim.api.nvim_win_get_buf(win)]))
+    end
+  end
+end
+
+---@return tarminal.Placement
+local function placement_of(win)
+  local p = placed[win] or { kind = "split" }
+  local spec = { kind = p.kind, pos = p.pos }
+  if p.pos then
+    local vertical = p.pos == "left" or p.pos == "right"
+    spec.size = vertical and vim.api.nvim_win_get_width(win) or vim.api.nvim_win_get_height(win)
+  end
+  return spec
+end
+
+---@return tarminal.Placement|nil
+local function take_hidden(buf)
+  for i, h in ipairs(hidden) do
+    if h.buf == buf then
+      table.remove(hidden, i)
+      return h.spec
+    end
+  end
+end
+
+-- the last window can't close so blank it instead
+local function hide_window(win)
+  local buf = vim.api.nvim_win_get_buf(win)
+  take_hidden(buf)
+  table.insert(hidden, 1, { buf = buf, spec = placement_of(win) })
+  placed[win] = nil
+  if not pcall(vim.api.nvim_win_close, win, false) then
+    vim.api.nvim_win_call(win, function()
+      vim.cmd("enew")
+    end)
+  end
 end
 
 local get_job_id = util.get_job_id
@@ -37,19 +148,13 @@ local function ensure_window_for_buf(buf)
   if win then
     return win
   end
-  win = terminal_split()
-  vim.api.nvim_win_set_buf(win, buf)
-  return win
+  return open_window(buf, take_hidden(buf))
 end
 
--- close the terminal's window
--- the last window can't close so blank it instead
 local function close_window_for_buf(buf)
   local win = find_win_for_buf(buf)
-  if win and not pcall(vim.api.nvim_win_close, win, false) then
-    vim.api.nvim_win_call(win, function()
-      vim.cmd("enew")
-    end)
+  if win then
+    hide_window(win)
   end
 end
 
@@ -59,6 +164,56 @@ local function is_terminal_alive(buf)
     return false
   end
   return vim.fn.jobwait({ job }, 0)[1] == -1
+end
+
+---@return boolean hid_any
+local function hide_all()
+  local current = vim.api.nvim_get_current_tabpage()
+  local wins = vim.api.nvim_tabpage_list_wins(current)
+  for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
+    if tab ~= current then
+      vim.list_extend(wins, vim.api.nvim_tabpage_list_wins(tab))
+    end
+  end
+  local mine = vim.tbl_filter(function(win)
+    return util.owns(vim.api.nvim_win_get_buf(win))
+  end, wins)
+  for i = #mine, 1, -1 do
+    if vim.api.nvim_win_is_valid(mine[i]) then
+      hide_window(mine[i])
+    end
+  end
+  return #mine > 0
+end
+
+---@return integer|nil win of the first terminal shown
+local function show_hidden()
+  local list = hidden
+  hidden = {}
+  local order = {}
+  for i, h in ipairs(list) do
+    if vim.api.nvim_buf_is_valid(h.buf) and is_terminal_alive(h.buf) then
+      order[#order + 1] = { i = i, h = h }
+    end
+  end
+  table.sort(order, function(a, b)
+    local fa, fb = a.h.spec.kind == "float", b.h.spec.kind == "float"
+    if fa ~= fb then
+      return fb
+    end
+    return a.i < b.i
+  end)
+  local first, first_i
+  for _, o in ipairs(order) do
+    local win = find_win_for_buf(o.h.buf) or open_window(o.h.buf, o.h.spec)
+    if not first_i or o.i < first_i then
+      first, first_i = win, o.i
+    end
+  end
+  if first then
+    vim.api.nvim_set_current_win(first)
+  end
+  return first
 end
 
 ---@return integer|nil buf
@@ -91,9 +246,9 @@ end
 ---@param name string buffer name like "tarminal://shell"
 ---@return integer|nil buf, integer|nil win
 local function open_shell_term(name)
-  local win = terminal_split()
-  vim.cmd("enew")
-  local buf = vim.api.nvim_get_current_buf()
+  local buf = vim.api.nvim_create_buf(true, false)
+  titles[buf] = name:gsub("^tarminal://", "")
+  local win = open_window(buf)
   local cmd = shell_cmd(config.opts.shell)
   local ok, job
   if vim.fn.has("nvim-0.11") == 1 then
@@ -208,9 +363,16 @@ local function focus_after_send(term_win, code_win, follow, start_at_top)
 end
 
 M.shell_cmd = shell_cmd
+M.float_config = float_config
+M.refit_floats = refit_floats
 M.find_win_for_buf = find_win_for_buf
 M.ensure_window_for_buf = ensure_window_for_buf
 M.close_window_for_buf = close_window_for_buf
+M.hide_all = hide_all
+M.forget_hidden = function()
+  hidden = {}
+end
+M.show_hidden = show_hidden
 M.find_live_terminal = find_live_terminal
 M.open_shell_term = open_shell_term
 M.term_send = term_send
