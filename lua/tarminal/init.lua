@@ -51,6 +51,11 @@ local function register()
       if type(seq) ~= "string" then
         return
       end
+      local mark, code = platform.osc133(seq)
+      if mark then
+        run.prompt_mark(ev.buf, mark, code)
+        return
+      end
       local cwd = platform.osc7_cwd(seq)
       if cwd and cwd ~= "" then
         vim.b[ev.buf].term_cwd = cwd

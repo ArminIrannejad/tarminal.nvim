@@ -189,6 +189,35 @@ A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you
 started and walked away from can never be glued onto the run command.
 
+### Events
+
+tarminal fires `User` autocmds you can hook into:
+
+- `TarminalOpen` when it opens a terminal, with `buf`, `kind` (`"shell"` or
+  `"repl"`), and `ft` for a REPL
+- `TarminalRunStart` when a run or exec is sent, with `buf`, `cmd`, and `dir`
+- `TarminalRunDone` when the shell is back at its prompt, with the same fields
+  plus `duration` in milliseconds (to within a fraction of a second) and `code`
+
+For example, to get told when a long run finishes:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TarminalRunDone",
+  callback = function(ev)
+    local d = ev.data
+    if d.duration > 5000 then
+      vim.notify(("%s done in %ds"):format(d.cmd, d.duration / 1000))
+    end
+  end,
+})
+```
+
+tarminal types nothing extra to learn the outcome. It watches the shell get the
+terminal back, the same way it checks the terminal is busy. `code` is the exit
+status when your shell reports it with OSC 133 semantic prompt marks, as fish 4
+and many shell integrations do, and `nil` otherwise.
+
 ### Shell integration
 
 A relative path in error output resolves against the directory the shell is

@@ -130,6 +130,111 @@ describe("tarminal run", function()
     assert.equals(vim.fn.fnamemodify(file, ":h"), vim.b[term_buf].term_cwd)
   end)
 
+  local function on_done()
+    local got = {}
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunDone",
+      callback = function(ev)
+        got.data = ev.data
+      end,
+    })
+    return function()
+      local ok = vim.wait(8000, function()
+        return got.data ~= nil
+      end, 20)
+      vim.api.nvim_del_autocmd(id)
+      assert.is_true(ok)
+      return got.data
+    end
+  end
+
+  it("emits open start and done events around a run", function()
+    local events = {}
+    local group = vim.api.nvim_create_augroup("tarminal-test-events", { clear = true })
+    vim.api.nvim_create_autocmd("User", {
+      group = group,
+      pattern = { "TarminalOpen", "TarminalRunStart", "TarminalRunDone" },
+      callback = function(ev)
+        events[#events + 1] = { name = ev.match, data = ev.data, is_shell = vim.b[ev.data.buf].is_shell }
+      end,
+    })
+    local file = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({ "exit 3" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "sh"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { sh = "sh" } })
+
+    tarminal.run()
+    local done = vim.wait(8000, function()
+      return #events == 3
+    end, 20)
+    vim.api.nvim_del_augroup_by_id(group)
+    vim.fn.delete(file)
+
+    assert.is_true(done)
+    local term_buf = find_term_buf()
+    assert.same({ buf = term_buf, kind = "shell" }, events[1].data)
+    assert.is_true(events[1].is_shell)
+    assert.equals("TarminalRunStart", events[2].name)
+    assert.equals("TarminalRunDone", events[3].name)
+    local data = events[3].data
+    assert.equals(term_buf, data.buf)
+    assert.equals(vim.fn.fnamemodify(file, ":h"), data.dir)
+    assert.is_truthy(data.cmd:find("sh ", 1, true))
+    assert.is_nil(data.code)
+  end)
+
+  it("holds the done event until the command gives the prompt back", function()
+    local wait = on_done()
+    tarminal.setup({ park_on_error = false, follow_run = "none" })
+    tarminal.exec("sleep 1", true)
+    local data = wait()
+    assert.is_true(data.duration >= 900)
+  end)
+
+  it("reports a run still pending when the next one starts", function()
+    local done = {}
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunDone",
+      callback = function(ev)
+        done[#done + 1] = ev.data.cmd
+      end,
+    })
+    tarminal.setup({ park_on_error = false, follow_run = "none" })
+    tarminal.exec("echo one", true)
+    local term_buf = find_term_buf()
+    assert.is_true(wait_run_finished(term_buf, 1, "one"))
+    tarminal.exec("echo two", true)
+    vim.wait(8000, function()
+      return #done == 2
+    end, 20)
+    vim.api.nvim_del_autocmd(id)
+    assert.same({ "echo one", "echo two" }, done)
+  end)
+
+  it("keeps running when an event handler errors", function()
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunStart",
+      callback = function()
+        error("broken handler")
+      end,
+    })
+    local wait = on_done()
+    tarminal.setup({ park_on_error = false, follow_run = "focus" })
+    local code_win = vim.api.nvim_get_current_win()
+    tarminal.exec("true", true)
+    vim.api.nvim_del_autocmd(id)
+    assert.is_not.equals(code_win, vim.api.nvim_get_current_win())
+    assert.equals("true", wait().cmd)
+  end)
+
+  it("takes the exit status from a prompt that reports OSC 133", function()
+    local wait = on_done()
+    tarminal.setup({ park_on_error = false, follow_run = "none" })
+    tarminal.exec([[printf '\033]133;C\007'; sleep 0.3; printf '\033]133;D;4\007']], true)
+    assert.equals(4, wait().code)
+  end)
+
   it("aborts the run when the file cannot be written", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

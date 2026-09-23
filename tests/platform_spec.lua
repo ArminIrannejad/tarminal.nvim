@@ -18,6 +18,14 @@ describe("tarminal platform", function()
     assert.is_nil(osc7_cwd(ESC .. "]0;a title" .. BEL))
   end)
 
+  it("parses semantic prompt marks and their exit status", function()
+    local ESC, BEL = "\027", "\007"
+    assert.same({ "C" }, { platform.osc133(ESC .. "]133;C" .. BEL) })
+    assert.same({ "D", 2 }, { platform.osc133(ESC .. "]133;D;2" .. ESC .. "\\") })
+    assert.same({ "D" }, { platform.osc133("]133;D") })
+    assert.is_nil(platform.osc133(ESC .. "]7;file:///tmp" .. BEL))
+  end)
+
   it("extracts the cwd row from procstat -f output", function()
     local parse = platform.parse_procstat_cwd
     local out = table.concat({

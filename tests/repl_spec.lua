@@ -177,6 +177,27 @@ describe("tarminal repl", function()
     assert.is_truthy(content:find("print(1)\nprint(2)", 1, true))
   end)
 
+  it("emits TarminalOpen for a REPL with its filetype already set", function()
+    local out = vim.fn.tempname()
+    local seen
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalOpen",
+      callback = function(ev)
+        seen = { data = ev.data, repl_ft = vim.b[ev.data.buf].repl_ft }
+      end,
+    })
+    tarminal.setup({ follow_repl = "none", repls = { lua = "cat > " .. vim.fn.shellescape(out) } })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "print(1)" })
+    vim.bo.filetype = "lua"
+    tarminal.send_cell()
+    vim.api.nvim_del_autocmd(id)
+    vim.fn.delete(out)
+
+    assert.equals("repl", seen.data.kind)
+    assert.equals("lua", seen.data.ft)
+    assert.equals("lua", seen.repl_ft)
+  end)
+
   it("wraps multi-line sends in the REPL's block markers", function()
     local out = vim.fn.tempname()
     tarminal.setup({

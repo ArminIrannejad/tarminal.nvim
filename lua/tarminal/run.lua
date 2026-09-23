@@ -33,8 +33,84 @@ local function get_or_create_shell_term()
     return nil
   end
   vim.b[buf].is_shell = true
+  util.emit("TarminalOpen", { buf = buf, kind = "shell" })
   term.enable_shell_integration(buf)
   return buf, win
+end
+
+-- the shell reported or was seen back at its prompt
+---@param code integer|nil exit status when the prompt reports it
+function M.finish(buf, code)
+  local r = state._run
+  if not r or r.buf ~= buf then
+    return
+  end
+  state._run = nil
+  util.emit("TarminalRunDone", {
+    buf = buf,
+    cmd = r.cmd,
+    dir = r.dir,
+    code = code,
+    duration = (vim.uv.hrtime() - r.start) / 1e6,
+  })
+end
+
+---@param mark string OSC 133 mark
+---@param code integer|nil
+function M.prompt_mark(buf, mark, code)
+  local r = state._run
+  if not r or r.buf ~= buf then
+    return
+  end
+  if mark == "C" then
+    r.marked = true
+  elseif mark == "D" and r.marked then
+    M.finish(buf, code)
+  end
+end
+
+local DONE_POLL = 200
+-- idle polls before a run that never looked busy counts as done
+local DONE_IDLE = 2
+-- a prompt that marks commands gets longer to report the status itself
+local MARKED_IDLE = 10
+
+local function watch_done(buf, id)
+  local timer = vim.uv.new_timer()
+  local idle, seen_busy = 0, false
+  local function stop()
+    timer:stop()
+    timer:close()
+  end
+  timer:start(
+    DONE_POLL,
+    DONE_POLL,
+    vim.schedule_wrap(function()
+      if timer:is_closing() then
+        return
+      end
+      local r = state._run
+      if not r or r.id ~= id or not vim.api.nvim_buf_is_valid(buf) then
+        stop()
+        return
+      end
+      local busy = platform.term_busy(buf)
+      if busy == nil then
+        stop()
+        return
+      end
+      if busy or platform.shell_has_child(buf) then
+        seen_busy, idle = true, 0
+        return
+      end
+      idle = idle + 1
+      local need = r.marked and MARKED_IDLE or seen_busy and 1 or DONE_IDLE
+      if idle >= need then
+        stop()
+        M.finish(buf)
+      end
+    end)
+  )
 end
 
 function M.toggle()
@@ -96,6 +172,13 @@ local function execute_in_shell(cmd, dir)
   platform.prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
+
+  if state._run then
+    M.finish(state._run.buf)
+  end
+  state._run = { id = state._run_id, buf = term_buf, cmd = cmd, dir = dir, start = vim.uv.hrtime() }
+  util.emit("TarminalRunStart", { buf = term_buf, cmd = cmd, dir = dir })
+  watch_done(term_buf, state._run_id)
 
   term.focus_after_send(term_win, code_win, config.opts.follow_run, banner ~= nil)
 end
