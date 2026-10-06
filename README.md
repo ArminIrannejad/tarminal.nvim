@@ -119,7 +119,7 @@ require("tarminal").setup({
   time_runs = false,                    -- time the run (for compiled files: the binary)
   banner = true,                        -- print "===== RUN =====" before each run
   clear_run = true,                     -- wipe the terminal + scrollback before each run
-  mask_run = true,                      -- kept runs show just the command at the prompt
+  mask_run = true,                      -- erase the prompt line a kept run was typed on
   shell_integration = true,             -- run hook + OSC 7 cwd tracking where no OS probe answers
   quickfix = {
     open = true,
@@ -181,9 +181,17 @@ Error navigation only acts on tarminal's own terminals by default. Set
 ### Runs
 
 Each run wipes the screen and the scrollback first, so the terminal shows the
-output of that run and nothing else — no `cd`, no run command, no leftovers from
-the run before. A `===== RUN: <time> =====` banner heads the output and focus
-moves to the terminal window. When the run finishes the cursor drops to its last
+output of that run and nothing else — no `cd`, no leftovers from the run
+before. A `===== RUN: <time> =====` banner heads the output, followed by the
+command that ran, dimmed and with paths in the run directory made relative:
+
+```
+===== RUN: 14:19:07 =====
+$ gcc abc.c -o abc && ./abc
+hi from c
+```
+
+Focus moves to the terminal window. When the run finishes the cursor drops to its last
 line, unless it parked on an error or you moved it. Set `clear_run = false` to keep the history and
 scroll back through it, `banner = false` to drop the banner line, and
 `follow_run = "none"` to stay in the code window.
@@ -196,9 +204,10 @@ load the hook through `--rcfile` and `-C`; zsh has no such flag, so a short
 `shell_integration = false` turns the hook off, and other shells get the full
 command line typed as before.
 
-With `clear_run = false` each run reads as the command alone, like
-`❯ python main.py`, with any prompt a cancelled `^C` left behind erased. Set
-`mask_run = false` to keep the raw echo.
+With `clear_run = false` the prompt line a run was typed on is erased, along
+with any prompt a cancelled `^C` left behind, so the history reads as banner,
+command and output for every run. Set `mask_run = false` to keep the raw
+echo.
 
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you

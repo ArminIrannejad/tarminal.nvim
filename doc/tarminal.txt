@@ -59,7 +59,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       time_runs = false,
       banner = true,            -- "===== RUN: <time> =====" line before each run
       clear_run = true,         -- wipe the terminal + scrollback before each run
-      mask_run = true,          -- kept runs show just the command at the prompt
+      mask_run = true,          -- erase the prompt line a kept run was typed on
       autosave = true,          -- write the buffer before a run; false runs from disk
       shell_integration = true, -- run hook + OSC 7 cwd tracking where no probe answers
       runners = {
@@ -171,13 +171,15 @@ other run, receive a copy of the run context, and are checked by
 
 By default (`clear_run = true`) the terminal and its scrollback are wiped
 before each run, so the screen holds that run's output and nothing else: the
-`cd` and the run command tarminal typed are gone along with the run before
-it, and earlier output is not scrollable.
+`cd` tarminal typed is gone along with the run before it, and earlier output
+is not scrollable. The command that ran is printed dimmed under the banner,
+with paths in the run directory made relative, like `$ python abc.py`.
 
 Set `clear_run = false` to keep the history instead — earlier runs stay in
 the scrollable buffer and a run's output simply appends at the prompt. With
-`mask_run = true` (the default) the prompt line still reads as the run
-command alone. Set `mask_run = false` to keep the raw echo.
+`mask_run = true` (the default) the prompt line the run was typed on is
+erased, so every run reads as banner, command and output. Set
+`mask_run = false` to keep the raw echo.
 
 In bash, zsh and fish the `cd`, clear and banner are never typed: a preexec
 hook sources them from a file right before the command, so only the command
