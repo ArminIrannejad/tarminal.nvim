@@ -13,6 +13,41 @@ local sh_quote = util.sh_quote
 
 local last_content_row = term.last_content_row
 
+-- the echoed command line rewritten to show only cmd after the prompt
+-- the prompt is read off the screen so a miscount just leaves the echo
+-- rows from a cancelled prompt down to the current one are wiped as well
+---@return string
+local function mask_echo(buf, win, old_row, full, cmd)
+  local row = last_content_row(buf)
+  local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+  if not line or not vim.api.nvim_win_is_valid(win) then
+    return full
+  end
+  local info = vim.fn.getwininfo(win)[1]
+  local width = info.width - info.textoff
+  -- a right prompt is cut at the gap before it
+  if vim.fn.strdisplaywidth(line) >= width - 1 then
+    line = line:match("^(.-%S)%s%s+%S.-$") or line
+  end
+  local prompt = vim.fn.strdisplaywidth((line:gsub("%s+$", "")))
+  local show = prompt > 0 and "\\r\\033[" .. prompt .. "C" or "\\r"
+  local above = old_row > 0 and old_row < row and row - old_row or 0
+  local rows, masked = 1, full
+  for _ = 1, 3 do
+    masked = "printf '\\033[" .. (rows + above) .. "A" .. show .. "\\033[J %s\\n' " .. sh_quote(cmd) .. " && " .. full
+    -- prompt then its trailing space then the sent line with its leading space
+    local need = math.ceil((prompt + 2 + vim.fn.strdisplaywidth(masked)) / width)
+    if need == rows then
+      break
+    end
+    rows = need
+  end
+  if rows + above >= info.height then
+    return full
+  end
+  return masked
+end
+
 local function get_or_create_shell_term()
   local buf = term.find_live_terminal("is_shell", true)
   if buf then
@@ -155,13 +190,19 @@ local function execute_in_shell(cmd, dir)
     full = term.CLEAR_SEQ .. " && " .. full
     start_row = 0
   end
+  local send = full
+  if not config.opts.clear_run and config.opts.mask_run and start_row > 0 then
+    send = function()
+      return mask_echo(term_buf, term_win, start_row, full, cmd)
+    end
+  end
 
   errors.clear_diagnostics()
   local scan = config.opts.park_on_error or config.opts.diagnostics
   if banner or scan then
     errors.watch_run_output(term_buf, banner, start_row, scan)
   end
-  term.term_send_command(term_buf, full, cancel_pending)
+  term.term_send_command(term_buf, send, cancel_pending)
   vim.b[term_buf].term_cwd = dir
   platform.prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner

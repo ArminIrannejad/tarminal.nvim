@@ -37,6 +37,7 @@
 ---@field time_runs boolean `time` the run when a time binary exists
 ---@field banner boolean print a RUN banner before each run
 ---@field clear_run boolean wipe the terminal + scrollback before each run (not scrollable)
+---@field mask_run boolean show a kept run as its command alone without the cd and banner
 ---@field shell_integration boolean emit + track cwd via OSC 7 where no OS probe answers
 ---@field runners table<string, string|tarminal.Runner|fun(ctx: tarminal.RunContext): string?, string?> filetype -> run command
 ---@field project_runners tarminal.ProjectRunner[]|false tried before runners
@@ -117,6 +118,7 @@ local defaults = {
   time_runs = false,
   banner = true,
   clear_run = true,
+  mask_run = true,
   shell_integration = true,
   runners = {
     python = "python",

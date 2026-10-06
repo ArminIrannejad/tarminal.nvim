@@ -548,6 +548,7 @@ describe("tarminal run", function()
     tarminal.setup({
       banner = false,
       clear_run = false,
+      mask_run = false,
       park_on_error = false,
       follow_run = "none",
       shell = "sh " .. script,
@@ -877,6 +878,29 @@ describe("tarminal run", function()
     vim.api.nvim_del_autocmd(id)
     local term_win = term.find_win_for_buf(term_buf)
     assert.equals(term.last_content_row(term_buf), vim.api.nvim_win_get_cursor(term_win)[1])
+  end)
+
+  it("shows a kept run as its command alone", function()
+    local term_buf
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunDone",
+      callback = function(ev)
+        if ev.data.cmd == "echo tarminal_masked" then
+          term_buf = ev.data.buf
+        end
+      end,
+    })
+    tarminal.setup({ clear_run = false, park_on_error = false, follow_run = "none" })
+    tarminal.exec("echo tarminal_fresh", true)
+    assert.is_true(wait_run_finished(find_term_buf(), 1, "tarminal_fresh"))
+    tarminal.exec("echo tarminal_masked", true)
+    assert.is_true(vim.wait(8000, function()
+      return term_buf ~= nil
+    end, 20))
+    vim.api.nvim_del_autocmd(id)
+    local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+    assert.is_nil(text:find("&& echo tarminal_masked", 1, true))
+    assert.is_not_nil(text:find("$ echo tarminal_masked\n", 1, true))
   end)
 
   it("keeps the last run when a later run has no configured runner", function()
