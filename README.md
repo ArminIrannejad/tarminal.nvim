@@ -119,6 +119,7 @@ require("tarminal").setup({
   time_runs = false,                    -- time the run (for compiled files: the binary)
   banner = true,                        -- print "===== RUN =====" before each run
   clear_run = true,                     -- wipe the terminal + scrollback before each run
+  mask_run = true,                      -- kept runs show just the command at the prompt
   shell_integration = true,             -- OSC 7 cwd tracking where no OS probe answers
   quickfix = {
     open = true,
@@ -186,6 +187,10 @@ moves to the terminal window. When the run finishes the cursor drops to its last
 line, unless it parked on an error or you moved it. Set `clear_run = false` to keep the history and
 scroll back through it, `banner = false` to drop the banner line, and
 `follow_run = "none"` to stay in the code window.
+
+With `clear_run = false` each run still reads as the command alone, like
+`❯ python main.py`, with the `cd` and banner plumbing erased from the prompt
+line. Set `mask_run = false` to see the full line tarminal sends.
 
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you

@@ -59,6 +59,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       time_runs = false,
       banner = true,            -- "===== RUN: <time> =====" line before each run
       clear_run = true,         -- wipe the terminal + scrollback before each run
+      mask_run = true,          -- kept runs show just the command at the prompt
       autosave = true,          -- write the buffer before a run; false runs from disk
       shell_integration = true, -- OSC 7 cwd tracking where no probe answers
       runners = {
@@ -174,7 +175,10 @@ before each run, so the screen holds that run's output and nothing else: the
 it, and earlier output is not scrollable.
 
 Set `clear_run = false` to keep the history instead — earlier runs stay in
-the scrollable buffer and a run's output simply appends at the prompt.
+the scrollable buffer and a run's output simply appends at the prompt. With
+`mask_run = true` (the default) the prompt line still reads as the run
+command alone: the `cd` and banner plumbing tarminal typed are erased from
+it. Set `mask_run = false` to see the full line.
 
 With `banner = true` (the default) tarminal prefixes each run with a
 `===== RUN: <time> =====` line and scrolls the Neovim window to it, so the
