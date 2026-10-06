@@ -859,6 +859,26 @@ describe("tarminal run", function()
     vim.fn.delete(file)
   end)
 
+  it("moves the cursor to the end of a finished run", function()
+    local term_buf
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunDone",
+      callback = function(ev)
+        if ev.data.cmd == "seq 1 200" then
+          term_buf = ev.data.buf
+        end
+      end,
+    })
+    tarminal.setup({ park_on_error = false, follow_run = "focus" })
+    tarminal.exec("seq 1 200", true)
+    assert.is_true(vim.wait(8000, function()
+      return term_buf ~= nil
+    end, 20))
+    vim.api.nvim_del_autocmd(id)
+    local term_win = term.find_win_for_buf(term_buf)
+    assert.equals(term.last_content_row(term_buf), vim.api.nvim_win_get_cursor(term_win)[1])
+  end)
+
   it("keeps the last run when a later run has no configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

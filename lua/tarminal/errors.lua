@@ -450,9 +450,15 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
         if win and typing then
           pin_row = banner_row
         elseif win then
+          local r = state._run
+          local lnum = banner_row
+          if not r or r.buf ~= term_buf then
+            lnum = math.max(term.last_content_row(term_buf), banner_row)
+          end
           vim.api.nvim_win_call(win, function()
-            vim.fn.winrestview({ topline = banner_row, lnum = banner_row, col = 0 })
+            vim.fn.winrestview({ topline = banner_row, lnum = lnum, col = 0 })
           end)
+          vim.b[term_buf].run_anchor = banner_row
         end
       end
 
@@ -496,6 +502,22 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       end
     end)
   )
+end
+
+-- a finished run moves the cursor to its end unless it left the banner
+local function follow_tail(term_buf)
+  if not vim.api.nvim_buf_is_valid(term_buf) then
+    return
+  end
+  local anchor = vim.b[term_buf].run_anchor
+  local win = term.find_win_for_buf(term_buf)
+  if not anchor or not win or vim.api.nvim_win_get_cursor(win)[1] ~= anchor then
+    return
+  end
+  if win == vim.api.nvim_get_current_win() and vim.api.nvim_get_mode().mode:sub(1, 1) == "t" then
+    return
+  end
+  vim.api.nvim_win_set_cursor(win, { math.max(term.last_content_row(term_buf), anchor), 0 })
 end
 
 ---@param dir integer 1 (down) or -1 (up)
@@ -608,6 +630,7 @@ M.parse_error_line = parse_error_line
 M.logical_line_at = logical_line_at
 M.scan_logical_at = scan_logical_at
 M.watch_run_output = watch_run_output
+M.follow_tail = follow_tail
 M.define_highlight = define_error_highlight
 
 return M

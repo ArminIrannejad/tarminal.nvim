@@ -307,6 +307,17 @@ end
 
 local sh_quote = util.sh_quote
 
+---@return integer row 0 when entirely blank
+local function last_content_row(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  for i = #lines, 1, -1 do
+    if lines[i] ~= "" then
+      return i
+    end
+  end
+  return 0
+end
+
 local function term_cd(buf, dir)
   term_send_command(buf, "cd " .. sh_quote(dir))
   vim.b[buf].term_cwd = dir
@@ -384,5 +395,6 @@ M.OSC7_SETUP = OSC7_SETUP
 M.osc7_snippet = osc7_snippet
 M.enable_shell_integration = enable_shell_integration
 M.focus_after_send = focus_after_send
+M.last_content_row = last_content_row
 
 return M

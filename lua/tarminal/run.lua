@@ -11,16 +11,7 @@ local M = {}
 
 local sh_quote = util.sh_quote
 
----@return integer row 0 when entirely blank
-local function last_content_row(buf)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  for i = #lines, 1, -1 do
-    if lines[i] ~= "" then
-      return i
-    end
-  end
-  return 0
-end
+local last_content_row = term.last_content_row
 
 local function get_or_create_shell_term()
   local buf = term.find_live_terminal("is_shell", true)
@@ -46,6 +37,7 @@ function M.finish(buf, code)
     return
   end
   state._run = nil
+  errors.follow_tail(buf)
   util.emit("TarminalRunDone", {
     buf = buf,
     cmd = r.cmd,
@@ -174,6 +166,7 @@ local function execute_in_shell(cmd, dir)
   platform.prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
+  vim.b[term_buf].run_anchor = nil
 
   if state._run then
     M.finish(state._run.buf)
