@@ -182,7 +182,8 @@ runs kept in a scrollable buffer stay told apart. The two compose: banners
 survive a cleared run, they just have nothing above them. Set
 `banner = false` for a run that prints nothing but its own output; error
 highlighting and quickfix collection track a bannerless run just the same,
-only the view pinning to the banner is skipped.
+only the view pinning to the banner is skipped. When the run finishes the
+cursor drops to its last line, unless it parked on an error or you moved it.
 
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you

@@ -182,7 +182,8 @@ Error navigation only acts on tarminal's own terminals by default. Set
 Each run wipes the screen and the scrollback first, so the terminal shows the
 output of that run and nothing else — no `cd`, no run command, no leftovers from
 the run before. A `===== RUN: <time> =====` banner heads the output and focus
-moves to the terminal window. Set `clear_run = false` to keep the history and
+moves to the terminal window. When the run finishes the cursor drops to its last
+line, unless it parked on an error or you moved it. Set `clear_run = false` to keep the history and
 scroll back through it, `banner = false` to drop the banner line, and
 `follow_run = "none"` to stay in the code window.
 
