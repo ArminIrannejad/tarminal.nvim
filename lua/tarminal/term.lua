@@ -7,6 +7,8 @@ local util = require("tarminal.util")
 
 local M = {}
 
+local sh_quote = util.sh_quote
+
 ---@return integer win, string pos
 local function split_window(pos, size)
   pos = pos or config.opts.split_position
@@ -243,18 +245,95 @@ local function shell_cmd(shell)
   return parts
 end
 
+-- OSC the run hook prints once it is installed
+local HOOK_ACK = "]7799;tarminal-hook"
+
+-- preexec hooks source the run prelude so only the command is ever typed
+local RUN_HOOK = {
+  -- zsh has no rc flag and ZDOTDIR loses to a global zshenv so it is typed
+  zsh = {
+    file = "hook.zsh",
+    body = [=[
+__tarminal_pre() { [[ -f $TARMINAL_PRE ]] || return 0; source $TARMINAL_PRE; command rm -f $TARMINAL_PRE }
+autoload -Uz add-zsh-hook
+add-zsh-hook preexec __tarminal_pre
+printf '\033[3J\033[H\033[2J\033]7799;tarminal-hook\007'
+]=],
+  },
+  bash = {
+    file = "bashrc",
+    body = [=[
+[ -f ~/.bashrc ] && . ~/.bashrc
+__tarminal_pre() { [ -f "$TARMINAL_PRE" ] || return 0; . "$TARMINAL_PRE"; command rm -f "$TARMINAL_PRE"; }
+if declare -F __bp_preexec_invoke_exec >/dev/null; then
+  preexec_functions+=(__tarminal_pre)
+  printf '\033]7799;tarminal-hook\007'
+elif [ -z "$(trap -p DEBUG)" ]; then
+  trap '__tarminal_pre' DEBUG
+  printf '\033]7799;tarminal-hook\007'
+fi
+]=],
+  },
+  fish = {
+    file = "hook.fish",
+    body = [=[
+function __tarminal_pre --on-event fish_preexec
+  test -f "$TARMINAL_PRE"; or return 0
+  source "$TARMINAL_PRE"
+  command rm -f "$TARMINAL_PRE"
+end
+printf '\033]7799;tarminal-hook\007'
+]=],
+  },
+}
+
+local hook_dir
+
+---@return string[] cmd, table|nil env, string|nil install line to type
+local function hooked_shell(cmd, pre)
+  local name = vim.fn.fnamemodify(cmd[1] or "", ":t"):lower()
+  local hook = RUN_HOOK[name]
+  if not hook or #cmd > 1 or not config.opts.shell_integration then
+    return cmd, nil
+  end
+  if not hook_dir then
+    hook_dir = vim.fn.tempname()
+    vim.fn.mkdir(hook_dir, "p")
+    for _, h in pairs(RUN_HOOK) do
+      vim.fn.writefile(vim.split(h.body, "\n"), hook_dir .. "/" .. h.file)
+    end
+  end
+  local file = hook_dir .. "/" .. hook.file
+  local env = { TARMINAL_PRE = pre }
+  if name == "zsh" then
+    return cmd, env, ". " .. sh_quote(file)
+  elseif name == "bash" then
+    cmd = { cmd[1], "--rcfile", file }
+  else
+    cmd = { cmd[1], "-C", "source " .. sh_quote(file) }
+  end
+  return cmd, env, nil
+end
+
 ---@param name string buffer name like "tarminal://shell"
+---@param hook boolean|nil install the run hook where the shell has one
 ---@return integer|nil buf, integer|nil win
-local function open_shell_term(name)
+local function open_shell_term(name, hook)
   local buf = vim.api.nvim_create_buf(true, false)
   titles[buf] = name:gsub("^tarminal://", "")
   local win = open_window(buf)
-  local cmd = shell_cmd(config.opts.shell)
+  local cmd, env, install = shell_cmd(config.opts.shell), nil, nil
+  local pre = hook and vim.fn.tempname()
+  if pre then
+    cmd, env, install = hooked_shell(cmd, pre)
+  end
+  local opts = env and { env = env } or {}
   local ok, job
   if vim.fn.has("nvim-0.11") == 1 then
-    ok, job = pcall(vim.fn.jobstart, cmd, { term = true })
+    opts.term = true
+    ok, job = pcall(vim.fn.jobstart, cmd, opts)
   else
-    ok, job = pcall(vim.fn.termopen, cmd)
+    ok, job = pcall(vim.fn.termopen, cmd, opts)
   end
   if not ok or type(job) ~= "number" or job <= 0 then
     pcall(vim.api.nvim_win_close, win, true)
@@ -265,6 +344,10 @@ local function open_shell_term(name)
     return nil
   end
   vim.b[buf].term_cwd = vim.fn.getcwd()
+  if env then
+    vim.b[buf].run_pre = pre
+    vim.b[buf].run_install = install
+  end
 
   for name, value in pairs(config.opts.win_opts) do
     vim.opt_local[name] = value
@@ -331,6 +414,34 @@ local function after_cancel(buf, fn)
   )
 end
 
+-- a fresh shell types nothing until its hook reports in and the prompt is drawn
+local HOOK_WAIT = 3000
+
+local function after_startup(buf, fn)
+  local waited = 0
+  local timer = vim.uv.new_timer()
+  timer:start(
+    CANCEL_POLL,
+    CANCEL_POLL,
+    vim.schedule_wrap(function()
+      if timer:is_closing() then
+        return
+      end
+      waited = waited + CANCEL_POLL
+      if not vim.api.nvim_buf_is_valid(buf) then
+        timer:stop()
+        timer:close()
+        return
+      end
+      if vim.b[buf].run_hook or waited >= HOOK_WAIT then
+        timer:stop()
+        timer:close()
+        after_cancel(buf, fn)
+      end
+    end)
+  )
+end
+
 ---@param cmd string|fun(): string built at send time when a function
 ---@param cancel_pending boolean|nil drop typed-but-unsent input first
 local function term_send_command(buf, cmd, cancel_pending)
@@ -349,8 +460,6 @@ local function term_send_command(buf, cmd, cancel_pending)
     end
   end)
 end
-
-local sh_quote = util.sh_quote
 
 ---@return integer row 0 when entirely blank
 local function last_content_row(buf)
@@ -389,6 +498,9 @@ local function osc7_snippet(cmd)
 end
 
 local function enable_shell_integration(buf)
+  if vim.b[buf].run_install then
+    term_send_command(buf, vim.b[buf].run_install)
+  end
   -- the OS probe already answers and costs nothing at the prompt
   if not config.opts.shell_integration or platform.has_cwd_probe() then
     return
@@ -431,6 +543,8 @@ end
 M.show_hidden = show_hidden
 M.find_live_terminal = find_live_terminal
 M.open_shell_term = open_shell_term
+M.HOOK_ACK = HOOK_ACK
+M.after_startup = after_startup
 M.term_send = term_send
 M.term_send_command = term_send_command
 M.term_cd = term_cd

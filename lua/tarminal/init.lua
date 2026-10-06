@@ -57,6 +57,10 @@ local function register()
       if type(seq) ~= "string" then
         return
       end
+      if seq:find(term.HOOK_ACK, 1, true) then
+        vim.b[ev.buf].run_hook = true
+        return
+      end
       local mark, code = platform.osc133(seq)
       if mark then
         run.prompt_mark(ev.buf, mark, code)

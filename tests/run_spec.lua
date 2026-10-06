@@ -903,6 +903,45 @@ describe("tarminal run", function()
     assert.is_not_nil(text:find("$ echo tarminal_masked\n", 1, true))
   end)
 
+  for _, shell in ipairs({ "bash", "zsh" }) do
+    it("never types the run plumbing into a hooked " .. shell, function()
+      if vim.fn.executable(shell) == 0 then
+        return
+      end
+      local done = 0
+      local id = vim.api.nvim_create_autocmd("User", {
+        pattern = "TarminalRunDone",
+        callback = function(ev)
+          if ev.data.cmd:find("tarminal_hooked", 1, true) then
+            done = done + 1
+          end
+        end,
+      })
+      tarminal.setup({ clear_run = false, park_on_error = false, follow_run = "none", shell = shell })
+      local leaked = false
+      tarminal.exec("echo tarminal_hooked", true)
+      local term_buf = find_term_buf()
+      vim.api.nvim_buf_attach(term_buf, false, {
+        on_lines = function(_, buf, _, first, _, last)
+          for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, first, last, false)) do
+            leaked = leaked or l:find("cd '", 1, true) ~= nil or l:find("&&", 1, true) ~= nil
+          end
+        end,
+      })
+      assert.is_true(vim.wait(8000, function()
+        return done == 1
+      end, 20))
+      tarminal.exec("echo tarminal_hooked", true)
+      assert.is_true(vim.wait(8000, function()
+        return done == 2
+      end, 20))
+      vim.api.nvim_del_autocmd(id)
+      assert.is_true(vim.b[term_buf].run_hook)
+      assert.is_false(leaked)
+      assert.equals(2, helpers.output_count(term_buf, "tarminal_hooked"))
+    end)
+  end
+
   it("keeps the last run when a later run has no configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

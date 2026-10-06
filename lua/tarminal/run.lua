@@ -13,15 +13,16 @@ local sh_quote = util.sh_quote
 
 local last_content_row = term.last_content_row
 
--- the echoed command line rewritten to show only cmd after the prompt
+-- a printf that rewrites the echoed line to show only cmd after the prompt
 -- the prompt is read off the screen so a miscount just leaves the echo
 -- rows from a cancelled prompt down to the current one are wiped as well
----@return string
-local function mask_echo(buf, win, old_row, full, cmd)
+---@param rest string|nil plumbing typed after the printf when no hook runs it
+---@return string|nil
+local function mask_echo(buf, win, old_row, cmd, rest)
   local row = last_content_row(buf)
   local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
   if not line or not vim.api.nvim_win_is_valid(win) then
-    return full
+    return nil
   end
   local info = vim.fn.getwininfo(win)[1]
   local width = info.width - info.textoff
@@ -32,20 +33,21 @@ local function mask_echo(buf, win, old_row, full, cmd)
   local prompt = vim.fn.strdisplaywidth((line:gsub("%s+$", "")))
   local show = prompt > 0 and "\\r\\033[" .. prompt .. "C" or "\\r"
   local above = old_row > 0 and old_row < row and row - old_row or 0
-  local rows, masked = 1, full
+  local rows, mask = 1, nil
   for _ = 1, 3 do
-    masked = "printf '\\033[" .. (rows + above) .. "A" .. show .. "\\033[J %s\\n' " .. sh_quote(cmd) .. " && " .. full
+    mask = "printf '\\033[" .. (rows + above) .. "A" .. show .. "\\033[J %s\\n' " .. sh_quote(cmd)
+    local typed = rest and mask .. " && " .. rest or cmd
     -- prompt then its trailing space then the sent line with its leading space
-    local need = math.ceil((prompt + 2 + vim.fn.strdisplaywidth(masked)) / width)
+    local need = math.ceil((prompt + 2 + vim.fn.strdisplaywidth(typed)) / width)
     if need == rows then
       break
     end
     rows = need
   end
   if rows + above >= info.height then
-    return full
+    return nil
   end
-  return masked
+  return mask
 end
 
 local function get_or_create_shell_term()
@@ -54,14 +56,14 @@ local function get_or_create_shell_term()
     return buf, term.ensure_window_for_buf(buf)
   end
   local win
-  buf, win = term.open_shell_term("tarminal://shell")
+  buf, win = term.open_shell_term("tarminal://shell", true)
   if not buf then
     return nil
   end
   vim.b[buf].is_shell = true
   util.emit("TarminalOpen", { buf = buf, kind = "shell" })
   term.enable_shell_integration(buf)
-  return buf, win
+  return buf, win, true
 end
 
 -- the shell reported or was seen back at its prompt
@@ -160,7 +162,7 @@ local function execute_in_shell(cmd, dir)
   -- only on a shell known idle or ^C could kill a live command
   local cancel_pending = busy == false
 
-  local term_buf, term_win = get_or_create_shell_term()
+  local term_buf, term_win, fresh = get_or_create_shell_term()
   if not term_buf then
     vim.api.nvim_set_current_win(code_win)
     return
@@ -190,11 +192,26 @@ local function execute_in_shell(cmd, dir)
     full = term.CLEAR_SEQ .. " && " .. full
     start_row = 0
   end
-  local send = full
-  if not config.opts.clear_run and config.opts.mask_run and start_row > 0 then
-    send = function()
-      return mask_echo(term_buf, term_win, start_row, full, cmd)
+  local mask = not config.opts.clear_run and config.opts.mask_run
+  local function send()
+    local pre = vim.b[term_buf].run_pre
+    if pre and vim.b[term_buf].run_hook then
+      local lines = { "cd " .. sh_quote(dir) }
+      local m = mask and mask_echo(term_buf, term_win, start_row, cmd)
+      if m then
+        table.insert(lines, 1, m)
+      end
+      if config.opts.clear_run then
+        lines[#lines + 1] = term.CLEAR_SEQ
+      end
+      if banner then
+        lines[#lines + 1] = "printf '\\n===== RUN: " .. os.date("%H:%M:%S") .. " =====\\n'"
+      end
+      vim.fn.writefile(lines, pre)
+      return cmd
     end
+    local m = mask and start_row > 0 and mask_echo(term_buf, term_win, start_row, cmd, full)
+    return m and m .. " && " .. full or full
   end
 
   errors.clear_diagnostics()
@@ -202,7 +219,13 @@ local function execute_in_shell(cmd, dir)
   if banner or scan then
     errors.watch_run_output(term_buf, banner, start_row, scan)
   end
-  term.term_send_command(term_buf, send, cancel_pending)
+  if fresh and vim.b[term_buf].run_pre then
+    term.after_startup(term_buf, function()
+      term.term_send_command(term_buf, send)
+    end)
+  else
+    term.term_send_command(term_buf, send, cancel_pending)
+  end
   vim.b[term_buf].term_cwd = dir
   platform.prep_run_cache(term_buf, dir)
   vim.b[term_buf].run_banner = banner
