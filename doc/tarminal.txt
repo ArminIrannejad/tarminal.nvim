@@ -61,7 +61,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       clear_run = true,         -- wipe the terminal + scrollback before each run
       mask_run = true,          -- kept runs show just the command at the prompt
       autosave = true,          -- write the buffer before a run; false runs from disk
-      shell_integration = true, -- OSC 7 cwd tracking where no probe answers
+      shell_integration = true, -- run hook + OSC 7 cwd tracking where no probe answers
       runners = {
         python = "python",
         c = "cc",
@@ -177,8 +177,14 @@ it, and earlier output is not scrollable.
 Set `clear_run = false` to keep the history instead — earlier runs stay in
 the scrollable buffer and a run's output simply appends at the prompt. With
 `mask_run = true` (the default) the prompt line still reads as the run
-command alone: the `cd` and banner plumbing tarminal typed are erased from
-it. Set `mask_run = false` to see the full line.
+command alone. Set `mask_run = false` to keep the raw echo.
+
+In bash, zsh and fish the `cd`, clear and banner are never typed: a preexec
+hook sources them from a file right before the command, so only the command
+reaches the prompt. bash and fish load it with `--rcfile` and `-C`. zsh has
+no such flag, so `. hook.zsh` is typed once when the terminal opens and
+cleared at once. `shell_integration = false` turns it off; other shells get
+the full line typed.
 
 With `banner = true` (the default) tarminal prefixes each run with a
 `===== RUN: <time> =====` line and scrolls the Neovim window to it, so the
