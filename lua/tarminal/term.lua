@@ -285,24 +285,69 @@ end
 local CANCEL_INPUT = "\003"
 -- the tty flushes pending input with the signal so ours goes after
 local CANCEL_DELAY = 50
+-- input sent while a prompt hook runs is echoed twice so wait the redraw out
+local CANCEL_POLL = 10
+local CANCEL_QUIET = 30
+local CANCEL_WAIT = 1000
 -- end-of-line then line-kill clears that remainder in band so it cannot glue
 -- itself onto the command
 local KILL_LINE = "\005\021"
 
+local function after_cancel(buf, fn)
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local changed, quiet, waited = false, 0, 0
+  local timer = vim.uv.new_timer()
+  timer:start(
+    CANCEL_POLL,
+    CANCEL_POLL,
+    vim.schedule_wrap(function()
+      if timer:is_closing() then
+        return
+      end
+      waited = waited + CANCEL_POLL
+      if not vim.api.nvim_buf_is_valid(buf) then
+        timer:stop()
+        timer:close()
+        return
+      end
+      local now = vim.api.nvim_buf_get_changedtick(buf)
+      if now ~= tick then
+        tick, changed, quiet = now, true, 0
+      else
+        quiet = quiet + CANCEL_POLL
+      end
+      local child = platform.shell_has_child(buf)
+      -- a prompt hook draws after it exits
+      if child then
+        changed = false
+      end
+      local back = changed and quiet >= CANCEL_QUIET and child == false
+      if back or waited >= CANCEL_WAIT or (child == nil and waited >= CANCEL_DELAY) then
+        timer:stop()
+        timer:close()
+        fn()
+      end
+    end)
+  )
+end
+
+---@param cmd string|fun(): string built at send time when a function
 ---@param cancel_pending boolean|nil drop typed-but-unsent input first
 local function term_send_command(buf, cmd, cancel_pending)
-  -- leading space keeps it out of shell history (ignorespace)
-  local line = " " .. cmd .. "\n"
+  local function line()
+    -- leading space keeps it out of shell history (ignorespace)
+    return " " .. (type(cmd) == "function" and cmd() or cmd) .. "\n"
+  end
   if not cancel_pending then
-    term_send(buf, line)
+    term_send(buf, line())
     return
   end
   term_send(buf, CANCEL_INPUT)
-  vim.defer_fn(function()
-    if vim.api.nvim_buf_is_valid(buf) and is_terminal_alive(buf) then
-      term_send(buf, KILL_LINE .. line)
+  after_cancel(buf, function()
+    if is_terminal_alive(buf) then
+      term_send(buf, KILL_LINE .. line())
     end
-  end, CANCEL_DELAY)
+  end)
 end
 
 local sh_quote = util.sh_quote
