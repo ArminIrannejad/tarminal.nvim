@@ -942,6 +942,23 @@ describe("tarminal run", function()
     end)
   end
 
+  it("shows the run command over its output with the file made relative", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ banner = true, park_on_error = false, follow_run = "none", runners = { lua = "echo" } })
+
+    tarminal.run()
+    local term_buf = find_term_buf()
+    local name = vim.fn.fnamemodify(file, ":t")
+    assert.is_true(wait_run_finished(term_buf, 1, file))
+    local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
+    local banner = banner_rows(term_buf)[1]
+    assert.equals("$ echo " .. name, lines[banner + 1])
+    vim.fn.delete(file)
+  end)
+
   it("keeps the last run when a later run has no configured runner", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

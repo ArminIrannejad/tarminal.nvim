@@ -13,7 +13,7 @@ local sh_quote = util.sh_quote
 
 local last_content_row = term.last_content_row
 
--- a printf that rewrites the echoed line to show only cmd after the prompt
+-- a printf that erases the echoed prompt line so only the shown command remains
 -- the prompt is read off the screen so a miscount just leaves the echo
 -- rows from a cancelled prompt down to the current one are wiped as well
 ---@param rest string|nil plumbing typed after the printf when no hook runs it
@@ -31,11 +31,10 @@ local function mask_echo(buf, win, old_row, cmd, rest)
     line = line:match("^(.-%S)%s%s+%S.-$") or line
   end
   local prompt = vim.fn.strdisplaywidth((line:gsub("%s+$", "")))
-  local show = prompt > 0 and "\\r\\033[" .. prompt .. "C" or "\\r"
   local above = old_row > 0 and old_row < row and row - old_row or 0
   local rows, mask = 1, nil
   for _ = 1, 3 do
-    mask = "printf '\\033[" .. (rows + above) .. "A" .. show .. "\\033[J %s\\n' " .. sh_quote(cmd)
+    mask = "printf '\\033[" .. (rows + above) .. "A\\r\\033[J'"
     local typed = rest and mask .. " && " .. rest or cmd
     -- prompt then its trailing space then the sent line with its leading space
     local need = math.ceil((prompt + 2 + vim.fn.strdisplaywidth(typed)) / width)
@@ -48,6 +47,12 @@ local function mask_echo(buf, win, old_row, cmd, rest)
     return nil
   end
   return mask
+end
+
+-- the command as shown over its output with paths inside dir made relative
+local function display_cmd(cmd, dir)
+  local shown = cmd:gsub(vim.pesc("'" .. dir .. "/"), "'")
+  return (shown:gsub("'([%w%._/%-]+)'", "%1"))
 end
 
 local function get_or_create_shell_term()
@@ -172,44 +177,44 @@ local function execute_in_shell(cmd, dir)
 
   state._run_id = (state._run_id or 0) + 1
 
-  local banner, start_row, full
+  local banner = config.opts.banner and "RUN" or nil
   -- the banner is not unique per run so the pre-send content row keeps
   -- a stale banner from an earlier run out of the search
-  start_row = last_content_row(term_buf)
-  if config.opts.banner then
-    banner = "RUN"
+  local start_row = config.opts.clear_run and 0 or last_content_row(term_buf)
+  local shown = "$ " .. display_cmd(cmd, dir)
+  -- a kept run without a banner still needs a row between it and the last
+  local lead = not banner and not config.opts.clear_run and "\\n" or ""
+  local echo = "printf '" .. lead .. "\\033[2m%s\\033[0m\\n' " .. sh_quote(shown)
 
-    full = table.concat({
-      "cd " .. sh_quote(dir),
-      "printf '\\n===== RUN: %s =====\\n' \"$(date '+%H:%M:%S')\"",
-      cmd,
-    }, " && ")
-  else
-    full = "cd " .. sh_quote(dir) .. " && " .. cmd
+  ---@param time string|nil fixed banner time where the shell does not expand it
+  local function plumbing(time)
+    local steps = { "cd " .. sh_quote(dir) }
+    if config.opts.clear_run then
+      table.insert(steps, 1, term.CLEAR_SEQ)
+    end
+    if banner then
+      local stamp = time or "'\"$(date '+%H:%M:%S')\"'"
+      steps[#steps + 1] = "printf '\\n===== RUN: " .. stamp .. " =====\\n'"
+    end
+    steps[#steps + 1] = echo
+    return steps
   end
 
-  if config.opts.clear_run then
-    full = term.CLEAR_SEQ .. " && " .. full
-    start_row = 0
-  end
   local mask = not config.opts.clear_run and config.opts.mask_run
   local function send()
     local pre = vim.b[term_buf].run_pre
     if pre and vim.b[term_buf].run_hook then
-      local lines = { "cd " .. sh_quote(dir) }
+      local lines = plumbing(os.date("%H:%M:%S"))
       local m = mask and mask_echo(term_buf, term_win, start_row, cmd)
       if m then
         table.insert(lines, 1, m)
       end
-      if config.opts.clear_run then
-        lines[#lines + 1] = term.CLEAR_SEQ
-      end
-      if banner then
-        lines[#lines + 1] = "printf '\\n===== RUN: " .. os.date("%H:%M:%S") .. " =====\\n'"
-      end
       vim.fn.writefile(lines, pre)
       return cmd
     end
+    local steps = plumbing()
+    steps[#steps + 1] = cmd
+    local full = table.concat(steps, " && ")
     local m = mask and start_row > 0 and mask_echo(term_buf, term_win, start_row, cmd, full)
     return m and m .. " && " .. full or full
   end
@@ -231,6 +236,7 @@ local function execute_in_shell(cmd, dir)
   vim.b[term_buf].run_banner = banner
   vim.b[term_buf].run_start_row = start_row
   vim.b[term_buf].run_anchor = nil
+  vim.b[term_buf].run_echo = shown
 
   if state._run then
     M.finish(state._run.buf)

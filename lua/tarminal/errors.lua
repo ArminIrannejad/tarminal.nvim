@@ -362,6 +362,16 @@ local function find_banner_row(lines, banner_token, min_row)
   end
 end
 
+-- rows the dimmed command line takes right after the run head
+local function echo_rows(term_buf, lines, row, width)
+  local echo = vim.b[term_buf].run_echo
+  local line = lines[row + 1]
+  if not echo or not line or line == "" or echo:sub(1, #line) ~= line then
+    return 0
+  end
+  return math.max(math.ceil(vim.fn.strdisplaywidth(echo) / width), 1)
+end
+
 ---@param banner_token string|nil marker printed before the output
 ---@param start_row integer|nil row the run's output starts after
 ---@param scan_errors boolean
@@ -473,7 +483,8 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local diags = config.opts.diagnostics and {}
       vim.api.nvim_buf_clear_namespace(term_buf, ns, banner_row, -1)
       local width = pty_width(term_buf)
-      local i = banner_row + 1
+      local head = banner_row + echo_rows(term_buf, lines, banner_row, width)
+      local i = head + 1
       while i <= #lines do
         local first, last, file, lnum, col, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf, i)
         if file and diags and sev >= config.opts.error_threshold then
@@ -482,7 +493,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
             lnum = math.max((lnum or 1) - 1, 0),
             col = math.max((col or 1) - 1, 0),
             severity = DIAG_SEVERITY[sev],
-            message = diag_message(lines, first, last, span_e, term_buf, banner_row),
+            message = diag_message(lines, first, last, span_e, term_buf, head),
             source = "tarminal",
           })
         end
@@ -491,7 +502,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
           if not parked and sev >= config.opts.error_threshold then
             parked = true
             if win and not typing then
-              vim.api.nvim_win_set_cursor(win, { math.max(first, banner_row + 1), 0 })
+              vim.api.nvim_win_set_cursor(win, { math.max(first, head + 1), 0 })
             end
           end
         end
@@ -577,6 +588,7 @@ function M.errors_to_quickfix()
   elseif run_start then
     start_row = run_start + 1
   end
+  start_row = start_row + echo_rows(term_buf, lines, start_row - 1, width)
 
   local items = {}
   local i = start_row
