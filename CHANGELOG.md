@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.4.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.3.0...v0.4.0) (2026-10-08)
+
+
+### Features
+
+* a float terminal hides after a jump lands ([69ef003](https://github.com/ArminIrannejad/tarminal.nvim/commit/69ef003b9e2094f419c5ab70f25786533c189bc7))
+* any_terminal navigates errors in terminals tarminal did not open ([cb939b0](https://github.com/ArminIrannejad/tarminal.nvim/commit/cb939b0557923dde8c81d85d0f0c5977ce48c3c6))
+* emit User events when a terminal opens and a run starts or ends ([8227109](https://github.com/ArminIrannejad/tarminal.nvim/commit/82271092464e05a18bf59fa930c486310b5a68d8))
+* keep_term_name keeps the term name so user term autocmds still match ([c01bd9f](https://github.com/ArminIrannejad/tarminal.nvim/commit/c01bd9f829f19b0f42b2d3b381334fb99292be93))
+* mask the run plumbing on kept runs ([ea9dfac](https://github.com/ArminIrannejad/tarminal.nvim/commit/ea9dfaca9adef099b09203d7d666313b36d6a87e))
+* move to the end of a finished run ([3e01e6c](https://github.com/ArminIrannejad/tarminal.nvim/commit/3e01e6c3a4731451ccc6ef5f1e51b4e24d68de85))
+* open the terminal in a side split a float or your own window ([aff1097](https://github.com/ArminIrannejad/tarminal.nvim/commit/aff109792dad682d4f207f80b7013eda6b51adc6))
+* play nice with your own terminal setup ([12ce381](https://github.com/ArminIrannejad/tarminal.nvim/commit/12ce381f1f3fd8d1f020d883277ed3aaff1eb7b2))
+* project runners and runner functions ([f5d5882](https://github.com/ArminIrannejad/tarminal.nvim/commit/f5d588202e27c9c1fae21220666d4a2de5bbe575))
+* project runners and runner functions ([be9a371](https://github.com/ArminIrannejad/tarminal.nvim/commit/be9a371cb2315385355db4db9fbf0f765ee38093))
+* publish run errors as diagnostics ([b7bd70e](https://github.com/ArminIrannejad/tarminal.nvim/commit/b7bd70e2ef6a137fda1d582c5335fc05b4b0376c))
+* publish run errors as diagnostics ([39663cd](https://github.com/ArminIrannejad/tarminal.nvim/commit/39663cd19c67b0bb5a5712e1d8f16d1536f7c439))
+* run the plumbing from a preexec hook ([8495897](https://github.com/ArminIrannejad/tarminal.nvim/commit/84958974803ff9ec351d601596907207a6932ac7))
+* show the run command over its output ([815acca](https://github.com/ArminIrannejad/tarminal.nvim/commit/815acca4d832fad14959a790d44e42af451e4e39))
+* side split float and custom layouts ([102fd52](https://github.com/ArminIrannejad/tarminal.nvim/commit/102fd52a36050add8d55893603c119801182bca7))
+* toggle hides every tarminal window and brings them back as they were ([de05c3f](https://github.com/ArminIrannejad/tarminal.nvim/commit/de05c3f9d1f44387668c4005ac8e939cc70922c5))
+* User events for terminal open and run start and done ([2bfe8cf](https://github.com/ArminIrannejad/tarminal.nvim/commit/2bfe8cf8aefacd674266997f3464918e7216d4f0))
+* win_opts to pick the terminal window options ([6ac68c4](https://github.com/ArminIrannejad/tarminal.nvim/commit/6ac68c4961bbafbb9788f2d28e7c95edcd0848ff))
+
+
+### Bug Fixes
+
+* add some other runners ([b9b7e70](https://github.com/ArminIrannejad/tarminal.nvim/commit/b9b7e703d8d3a5ff856a5dfa29753e862963b60f))
+* replace the tarminal quickfix list instead of stacking it ([d72c7ff](https://github.com/ArminIrannejad/tarminal.nvim/commit/d72c7ff6edbb3426657bd27edaff59b06229d051))
+* start shells on neovim 0.10 again ([cffc175](https://github.com/ArminIrannejad/tarminal.nvim/commit/cffc175e278b959a745008a3f986c6a4165af77c))
+* tell tarminal terminals apart by a buffer var not the filetype ([2cea396](https://github.com/ArminIrannejad/tarminal.nvim/commit/2cea396466e1b08d599b44b971f6f810d0a0ebf0))
+* wait for the prompt after cancelling input ([f8c0e3b](https://github.com/ArminIrannejad/tarminal.nvim/commit/f8c0e3bb82da3786f1e7743b9b06d4f9d45fe7fa))
+
 ## [0.3.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.2.0...v0.3.0) (2026-08-03)
 
 
