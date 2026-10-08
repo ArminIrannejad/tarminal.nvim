@@ -327,7 +327,7 @@ local function open_shell_term(name, hook)
   if pre then
     cmd, env, install = hooked_shell(cmd, pre)
   end
-  local opts = env and { env = env } or {}
+  local opts = env and { env = env } or vim.empty_dict()
   local ok, job
   if vim.fn.has("nvim-0.11") == 1 then
     opts.term = true
