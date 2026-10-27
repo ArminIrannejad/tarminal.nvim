@@ -880,6 +880,32 @@ describe("tarminal run", function()
     assert.equals(term.last_content_row(term_buf), vim.api.nvim_win_get_cursor(term_win)[1])
   end)
 
+  it("keeps the cursor on the last line while a run prints", function()
+    local done = false
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "TarminalRunDone",
+      callback = function()
+        done = true
+      end,
+    })
+    tarminal.setup({ park_on_error = false, follow_run = "focus" })
+    tarminal.exec("seq 1 100; sleep 3", true)
+    local term_buf = find_term_buf()
+    local function on_tail()
+      local win = term.find_win_for_buf(term_buf)
+      local row = term.last_content_row(term_buf)
+      return win and row > 100 and vim.api.nvim_win_get_cursor(win)[1] == row
+    end
+    local followed = vim.wait(2500, on_tail, 20)
+    local early = not done
+    vim.wait(8000, function()
+      return done
+    end, 50)
+    vim.api.nvim_del_autocmd(id)
+    assert.is_true(followed)
+    assert.is_true(early)
+  end)
+
   it("shows a kept run as its command alone", function()
     local term_buf
     local id = vim.api.nvim_create_autocmd("User", {

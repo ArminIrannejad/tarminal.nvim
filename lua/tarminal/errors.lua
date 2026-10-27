@@ -372,6 +372,24 @@ local function echo_rows(term_buf, lines, row, width)
   return math.max(math.ceil(vim.fn.strdisplaywidth(echo) / width), 1)
 end
 
+-- the cursor rides the run's last line until it parks or you move it
+local function follow_tail(term_buf)
+  if not vim.api.nvim_buf_is_valid(term_buf) then
+    return
+  end
+  local anchor = vim.b[term_buf].run_anchor
+  local win = term.find_win_for_buf(term_buf)
+  if not anchor or not win or vim.api.nvim_win_get_cursor(win)[1] ~= anchor then
+    return
+  end
+  if win == vim.api.nvim_get_current_win() and vim.api.nvim_get_mode().mode:sub(1, 1) == "t" then
+    return
+  end
+  local row = math.max(term.last_content_row(term_buf), anchor)
+  vim.api.nvim_win_set_cursor(win, { row, 0 })
+  vim.b[term_buf].run_anchor = row
+end
+
 ---@param banner_token string|nil marker printed before the output
 ---@param start_row integer|nil row the run's output starts after
 ---@param scan_errors boolean
@@ -460,22 +478,16 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
         if win and typing then
           pin_row = banner_row
         elseif win then
-          local r = state._run
-          local lnum = banner_row
-          if not r or r.buf ~= term_buf then
-            lnum = math.max(term.last_content_row(term_buf), banner_row)
-          end
+          local lnum = math.max(term.last_content_row(term_buf), banner_row)
           vim.api.nvim_win_call(win, function()
             vim.fn.winrestview({ topline = banner_row, lnum = lnum, col = 0 })
           end)
-          vim.b[term_buf].run_anchor = banner_row
+          vim.b[term_buf].run_anchor = lnum
         end
       end
+      follow_tail(term_buf)
 
       if not scan_errors then
-        if not pin_row then
-          stop()
-        end
         return
       end
 
@@ -503,6 +515,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
             parked = true
             if win and not typing then
               vim.api.nvim_win_set_cursor(win, { math.max(first, head + 1), 0 })
+              vim.b[term_buf].run_anchor = nil
             end
           end
         end
@@ -513,22 +526,6 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       end
     end)
   )
-end
-
--- a finished run moves the cursor to its end unless it left the banner
-local function follow_tail(term_buf)
-  if not vim.api.nvim_buf_is_valid(term_buf) then
-    return
-  end
-  local anchor = vim.b[term_buf].run_anchor
-  local win = term.find_win_for_buf(term_buf)
-  if not anchor or not win or vim.api.nvim_win_get_cursor(win)[1] ~= anchor then
-    return
-  end
-  if win == vim.api.nvim_get_current_win() and vim.api.nvim_get_mode().mode:sub(1, 1) == "t" then
-    return
-  end
-  vim.api.nvim_win_set_cursor(win, { math.max(term.last_content_row(term_buf), anchor), 0 })
 end
 
 ---@param dir integer 1 (down) or -1 (up)
