@@ -191,8 +191,9 @@ $ gcc abc.c -o abc && ./abc
 hi from c
 ```
 
-Focus moves to the terminal window. When the run finishes the cursor drops to its last
-line, unless it parked on an error or you moved it. Set `clear_run = false` to keep the history and
+Focus moves to the terminal window. The cursor stays on the last line while the run
+prints, so the output scrolls along without terminal-mode, until it parks on an error or
+you move it. Set `clear_run = false` to keep the history and
 scroll back through it, `banner = false` to drop the banner line, and
 `follow_run = "none"` to stay in the code window.
 

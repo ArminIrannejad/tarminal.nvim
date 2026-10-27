@@ -309,7 +309,9 @@ is the last window it is emptied rather than closed.
 `follow_run` / `follow_repl` control where focus goes after sending to the
 terminal: "none" stays in the code window, "focus" moves to the terminal
 window in normal mode, "insert" moves there and enters terminal-mode. A run
-follows to the terminal by default; a REPL send stays put.
+follows to the terminal by default; a REPL send stays put. While a run prints
+the cursor stays on its last line, so the output scrolls along in normal mode,
+until it parks on an error or you move it.
 
 With `quickfix = { open = false, close_terminal = false }`,
 errors_to_quickfix only populates the quickfix list and reports how many
