@@ -21,20 +21,55 @@ local function new_cache()
   return { lines = {}, paths = {} }
 end
 
+local function clean_root(path)
+  path = path and (uv.fs_realpath(path) or path)
+  return path and path:gsub("/+$", "")
+end
+
+local function workspace_root(dir)
+  if uv.fs_stat(dir .. "/.git") or uv.fs_stat(dir .. "/.hg") or uv.fs_stat(dir .. "/.svn") then
+    return true
+  end
+  if vim.fn.filereadable(dir .. "/go.work") == 1 then
+    return true
+  end
+  local cargo = dir .. "/Cargo.toml"
+  if vim.fn.filereadable(cargo) == 1 then
+    for _, line in ipairs(vim.fn.readfile(cargo, "", 200)) do
+      if line:match("^%s*%[workspace%]%s*$") then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 -- a tool can print paths relative to a root above where it ran
 -- like cargo in a workspace member: crates/foo/src/main.rs
--- only paths with a directory in them are tried there and never against
--- $HOME or / where a bare name would match anything
+-- only paths with a directory in them are tried there, bounded by a project
+-- root or $HOME so system trees cannot be mistaken for the workspace
 local function add_ancestors(candidates, base, path)
   if not path:find("/", 1, true) or path:match("^%.%.?/") then
     return
   end
-  local home = uv.os_homedir()
+  base = clean_root(base)
+  local home = clean_root(uv.os_homedir())
+  local inside_home = home and (base == home or vim.startswith(base, home .. "/"))
+  local first = #candidates + 1
   for parent in vim.fs.parents(base) do
     if parent == "/" or parent == home then
-      return
+      break
     end
     candidates[#candidates + 1] = parent .. "/" .. path
+    if workspace_root(parent) then
+      return
+    end
+  end
+  -- outside $HOME, no project marker means there is no safe workspace bound
+  if not inside_home then
+    for i = #candidates, first, -1 do
+      candidates[i] = nil
+    end
   end
 end
 
@@ -229,10 +264,12 @@ end
 -- entered until make leaves it again
 -- a RUN banner starts over so a make cut short can't leak into the next run
 ---@return table<integer, string>|nil dirs row to its directory or nil when none
-local function dir_map(lines, from, term_buf)
+local function dir_map(lines, from, term_buf, width)
   local dirs, stack, any = {}, {}, false
-  for row = from or 1, #lines do
-    local line = lines[row]
+  local row = from or 1
+  width = width or pty_width(term_buf)
+  while row <= #lines do
+    local line, first, last = logical_line_at(lines, row, width)
     if line:find(" directory ", 1, true) then
       local entered = announced_dir(line, "Entering")
       if entered then
@@ -241,15 +278,39 @@ local function dir_map(lines, from, term_buf)
         end
         stack[#stack + 1] = entered
         any = true
-      elseif announced_dir(line, "Leaving") then
-        stack[#stack] = nil
+      else
+        local left = announced_dir(line, "Leaving")
+        if left then
+          local match
+          for i = #stack, 1, -1 do
+            if stack[i] == left or (left:sub(1, 1) ~= "/" and stack[i]:sub(-#left - 1) == "/" .. left) then
+              match = i
+              break
+            end
+          end
+          if match then
+            for i = #stack, match, -1 do
+              stack[i] = nil
+            end
+          else
+            stack[#stack] = nil
+          end
+        end
       end
-    elseif line:match("^=====") and line:find("RUN", 1, true) then
+    elseif line:match("^===== RUN: ") then
       stack = {}
     end
-    dirs[row] = stack[#stack]
+    for r = math.max(first, from or 1), last do
+      dirs[r] = stack[#stack]
+    end
+    row = last + 1
   end
   return any and dirs or nil
+end
+
+local function dir_scan_start(term_buf, row)
+  local start = vim.b[term_buf].run_start_row
+  return start and start < row and start + 1 or 1
 end
 
 ---@param cache tarminal.ScanCache|nil
@@ -325,8 +386,9 @@ function M.jump_to_error()
   local floating = vim.api.nvim_win_get_config(0).relative ~= ""
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local row = vim.api.nvim_win_get_cursor(0)[1]
-  local dirs = dir_map(lines, 1, term_buf)
-  local _, _, file, lnum, col = scan_logical_at(lines, row, pty_width(term_buf), term_buf, nil, nil, nil, dirs)
+  local width = pty_width(term_buf)
+  local dirs = dir_map(lines, dir_scan_start(term_buf, row), term_buf, width)
+  local _, _, file, lnum, col = scan_logical_at(lines, row, width, term_buf, nil, nil, nil, dirs)
   if not file then
     vim.notify("No file location on this line", vim.log.levels.WARN)
     return
@@ -601,7 +663,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       vim.api.nvim_buf_clear_namespace(term_buf, ns, banner_row, -1)
       local width = pty_width(term_buf)
       local head = banner_row + echo_rows(term_buf, lines, banner_row, width)
-      local dirs = dir_map(lines, head + 1, term_buf)
+      local dirs = dir_map(lines, head + 1, term_buf, width)
       local i = head + 1
       while i <= #lines do
         local first, last, file, lnum, col, span_s, span_e, sev =
@@ -646,7 +708,7 @@ local function goto_error(dir)
   local row = vim.api.nvim_win_get_cursor(0)[1]
 
   local _, cur_first, cur_last = logical_line_at(lines, row, width)
-  local cache, dirs = new_cache(), dir_map(lines, 1, term_buf)
+  local cache, dirs = new_cache(), dir_map(lines, dir_scan_start(term_buf, row), term_buf, width)
   local i = dir > 0 and cur_last + 1 or cur_first - 1
   while i >= 1 and i <= #lines do
     local first, last, file, _, _, _, _, sev =
@@ -696,7 +758,7 @@ function M.errors_to_quickfix()
   start_row = start_row + echo_rows(term_buf, lines, start_row - 1, width)
 
   local items = {}
-  local cache, dirs = new_cache(), dir_map(lines, start_row, term_buf)
+  local cache, dirs = new_cache(), dir_map(lines, start_row, term_buf, width)
   local i = start_row
   while i <= #lines do
     -- scanned so a width-filling line can't swallow the error under it
