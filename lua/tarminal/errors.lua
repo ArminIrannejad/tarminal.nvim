@@ -465,6 +465,8 @@ function M.jump_to_error()
     win = vim.api.nvim_get_current_win()
   end
   vim.api.nvim_set_current_win(win)
+  -- setting the cursor leaves no jumplist entry so <C-o> would skip this spot
+  vim.cmd("normal! m'")
 
   -- a winfixbuf window already showing the file must not split it in two
   local ok, err = true, nil
@@ -484,7 +486,8 @@ function M.jump_to_error()
   -- clamp both ends for a missing line number and the 0 linkers emit
   lnum = math.min(math.max(lnum or 1, 1), vim.api.nvim_buf_line_count(buf))
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
-  vim.cmd("normal! zz")
+  -- a closed fold would hide the line the jump is for
+  vim.cmd("normal! zvzz")
 
   if close then
     term.close_window_for_buf(term_buf)
