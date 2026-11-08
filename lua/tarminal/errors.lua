@@ -148,9 +148,17 @@ local function resolve_file_suffix(candidate, term_buf, cache, dir)
   end
 end
 
-local SEVERITY_RANK = { note = 0, info = 0, warning = 1, warn = 1, error = 2 }
+local SEVERITY_RANK = { note = 0, info = 0, hint = 0, remark = 0, warning = 1, warn = 1, error = 2, fatal = 2 }
 local function severity_rank(word)
-  return word and SEVERITY_RANK[word:lower()] or 2
+  if not word then
+    return 2
+  end
+  word = word:lower()
+  -- python warning classes like DeprecationWarning
+  if word:sub(-7) == "warning" then
+    return 1
+  end
+  return SEVERITY_RANK[word] or 2
 end
 
 ---@return string|nil file, integer|nil lnum, integer|nil col,
@@ -158,34 +166,40 @@ end
 local function match_patterns(line, term_buf, cache, dir)
   local best
   for _, pat in ipairs(config.opts.error_patterns) do
-    local init = 1
-    while true do
-      -- caps[1..2] is the match bounds and caps[2+N] is capture N
-      local caps = { line:find(pat.pattern, init) }
-      local s, e = caps[1], caps[2]
-      if not s then
-        break
-      end
-      local raw = caps[2 + pat.file]
-      local path = resolve_file(raw, term_buf, cache, dir)
-      if not path and pat.resolve == false then
-        path = raw:sub(1, 1) == "~" and vim.fn.expand(raw) or raw
-      end
-      if path then
-        if not best or s < best.s then
-          local word = type(pat.type) == "number" and caps[2 + pat.type] or pat.type
-          best = {
-            file = path,
-            lnum = pat.lnum and tonumber(caps[2 + pat.lnum]),
-            col = pat.col and tonumber(caps[2 + pat.col]),
-            s = s,
-            e = e,
-            sev = severity_rank(word),
-          }
+    if not pat.contains or line:find(pat.contains, 1, true) then
+      local init = 1
+      while true do
+        -- caps[1..2] is the match bounds and caps[2+N] is capture N
+        local caps = { line:find(pat.pattern, init) }
+        local s, e = caps[1], caps[2]
+        if not s then
+          break
         end
-        break
+        local raw = caps[2 + pat.file]
+        local path = resolve_file(raw, term_buf, cache, dir)
+        if not path and pat.resolve == false then
+          path = raw:sub(1, 1) == "~" and vim.fn.expand(raw) or raw
+        end
+        if path then
+          if not best or s < best.s then
+            local word = type(pat.type) == "number" and caps[2 + pat.type] or pat.type
+            best = {
+              file = path,
+              lnum = pat.lnum and tonumber(caps[2 + pat.lnum]),
+              col = pat.col and tonumber(caps[2 + pat.col]),
+              s = s,
+              e = e,
+              sev = severity_rank(word),
+            }
+          end
+          break
+        end
+        init = e + 1
       end
-      init = e + 1
+    end
+    -- no later pattern can start farther left than the first byte
+    if best and best.s == 1 then
+      break
     end
   end
   if best then
@@ -211,7 +225,7 @@ local function parse_error_line(line, term_buf, cache, dir)
     end
     local path, offset = resolve_file_suffix(f, term_buf, cache, dir)
     if path then
-      local word = line:match("^:?%s*(%l+)", e + 1)
+      local word = line:match("^:?%s*(%a+)", e + 1)
       return path, tonumber(l), tonumber(c), s + offset, e, severity_rank(word)
     end
     init = e + 1

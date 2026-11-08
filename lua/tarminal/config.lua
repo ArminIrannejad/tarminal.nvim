@@ -63,6 +63,7 @@
 ---@field col integer|nil capture index of the column
 ---@field type integer|string|nil capture index of a severity word or a fixed severity
 ---@field resolve boolean|nil default true needs the file on disk while false trusts it
+---@field contains string|nil literal that must occur before trying the pattern
 
 ---@class tarminal.Runner
 ---@field cmd string run command
@@ -83,8 +84,11 @@
 local util = require("tarminal.util")
 
 -- path chars with no whitespace colon brackets or quotes
--- spaces and parens go through the fallback parser
+-- colon locations with spaces go through the fallback parser; paren locations do not
 local PATH = "([^%s:%(%)%[%]<>'\"]+)"
+-- paren locations are compiler shapes, so an extension keeps program output
+-- such as fib(10) from linking to an extension-less compiled binary
+local PATH_EXT = "([^%s:%(%)%[%]<>'\"]+%.%w+)"
 
 local function cargo_run(ctx, root)
   local rel = ctx.file:sub(#root + 2)
@@ -192,24 +196,71 @@ local defaults = {
   -- tried in order
   -- add your own for tools these miss
   error_patterns = {
-    { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
-    { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
+    -- the optional end column is ghc's
+    -- only a word ending in a colon so a message like sbt's "Not found" stays out of the span
+    {
+      pattern = PATH .. ":(%d+):(%d+)%-?%d*:%s*(%a+)%f[:]",
+      file = 1,
+      lnum = 2,
+      col = 3,
+      type = 4,
+      contains = ":",
+    },
+    -- tsc without --pretty
+    {
+      pattern = PATH .. ":(%d+):(%d+) %- (%a+)",
+      file = 1,
+      lnum = 2,
+      col = 3,
+      type = 4,
+      contains = ":",
+    },
+    { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3, contains = ":" },
     -- ghc span over several lines
-    { pattern = PATH .. ":%((%d+),(%d+)%)%-%(%d+,%d+%):%s*(%a+)", file = 1, lnum = 2, col = 3, type = 4 },
+    {
+      pattern = PATH .. ":%((%d+),(%d+)%)%-%(%d+,%d+%):%s*(%a+)",
+      file = 1,
+      lnum = 2,
+      col = 3,
+      type = 4,
+      contains = "(",
+    },
     -- odin nim pascal msbuild tsc and php frames put the location in parens
     -- the frontier keeps a php frame's function name out of the span
-    { pattern = PATH .. "%((%d+)[,:]%s*(%d+)%):?%s*(%a+)%f[:%s]", file = 1, lnum = 2, col = 3, type = 4 },
-    { pattern = PATH .. "%((%d+)[,:]%s*(%d+)%)", file = 1, lnum = 2, col = 3 },
-    { pattern = PATH .. "%((%d+)%):?%s*(%a+)%f[:%s]", file = 1, lnum = 2, type = 3 },
-    { pattern = PATH .. "%((%d+)%)", file = 1, lnum = 2 },
-    { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
+    {
+      pattern = PATH_EXT .. "%((%d+)[,:]%s*(%d+)%):?%s*(%a+)%f[:%s]",
+      file = 1,
+      lnum = 2,
+      col = 3,
+      type = 4,
+      contains = "(",
+    },
+    { pattern = PATH_EXT .. "%((%d+)[,:]%s*(%d+)%)", file = 1, lnum = 2, col = 3, contains = "(" },
+    {
+      pattern = PATH_EXT .. "%((%d+)%):?%s*(%a+)%f[:%s]",
+      file = 1,
+      lnum = 2,
+      type = 3,
+      contains = "(",
+    },
+    { pattern = PATH_EXT .. "%((%d+)%)", file = 1, lnum = 2, contains = "(" },
+    -- only a word ending in a colon so ruby's ":in" and lua's ": in" stay out of the span
+    { pattern = PATH .. ":(%d+):%s*(%a+)%f[:]", file = 1, lnum = 2, type = 3, contains = ":" },
+    { pattern = PATH .. ":(%d+):", file = 1, lnum = 2, contains = ":" },
     -- bash then php then perl
-    { pattern = PATH .. ": line (%d+)", file = 1, lnum = 2 },
-    { pattern = PATH .. " on line (%d+)", file = 1, lnum = 2 },
-    { pattern = PATH .. " line (%d+)", file = 1, lnum = 2 },
-    -- groovy anchored on its tail so dash's "/bin/sh: 1:" stays unlinked
-    { pattern = PATH .. ": (%d+): .-@ line %d+, column (%d+)%.", file = 1, lnum = 2, col = 3 },
-    { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
+    { pattern = PATH .. ": line (%d+)", file = 1, lnum = 2, contains = ": line " },
+    { pattern = PATH_EXT .. " on line (%d+)", file = 1, lnum = 2, contains = " on line " },
+    { pattern = "at%s+" .. PATH .. " line (%d+)", file = 1, lnum = 2, contains = "at " },
+    -- groovy is anchored on its tail so dash's "/bin/sh: 1:" stays unlinked;
+    -- the whole message is deliberately the match span
+    {
+      pattern = PATH .. ": (%d+): .-@ line %d+, column (%d+)%.",
+      file = 1,
+      lnum = 2,
+      col = 3,
+      contains = "@ line ",
+    },
+    { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2, contains = 'File "' },
   },
   error_threshold = 0,
   quickfix = {

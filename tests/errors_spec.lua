@@ -202,7 +202,28 @@ describe("tarminal errors", function()
     assert.equals(file, parsed_file)
     assert.equals(2, line)
     assert.is_nil(col)
-    assert.equals(output:find(file, 1, true), span_start)
+    assert.equals(output:find("at " .. file, 1, true), span_start)
+  end)
+
+  it("does not parse program output as a paren or Perl location", function()
+    local root = vim.fn.resolve(vim.fn.tempname())
+    vim.fn.mkdir(root, "p")
+    vim.fn.writefile({ "binary" }, root .. "/fib")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.b[buf].term_cwd = root
+    local parse = errors.parse_error_line
+
+    assert.is_nil(parse("fib(10) = 55", buf))
+    assert.is_nil(parse("    7 |   return fib(1, 2);", buf))
+    assert.is_nil(parse("result: fib line 3 done", buf))
+    assert.is_nil(parse("result: fib on line 3", buf))
+    -- Perl scripts can be extension-less, but its real output includes `at`
+    local file, line = parse("bad at fib line 3.", buf)
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+    vim.fn.delete(root, "rf")
+    assert.equals(root .. "/fib", file)
+    assert.equals(3, line)
   end)
 
   it("parses PHP on-line locations", function()
@@ -276,6 +297,59 @@ describe("tarminal errors", function()
     vim.fn.delete(file)
   end)
 
+  it("classifies capitalised severity words (Dart, Nim, Odin, Pascal)", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".nim"
+    vim.fn.writefile({ "echo 1" }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+
+    local function sev(text)
+      return select(6, parse(text, buf))
+    end
+    assert.equals(1, sev(file .. ":2:11: Warning: Unused variable."))
+    assert.equals(0, sev(file .. "(1, 5) Hint: 'x' is declared but not used"))
+    assert.equals(1, sev(file .. "(3:7) Warning: unused"))
+    assert.equals(2, sev(file .. "(3:7) Error: Undeclared name: y"))
+    assert.equals(2, sev(file .. "(5) Fatal: There were 1 errors"))
+    assert.equals(0, sev(file .. ":1:1: remark: loop vectorized"))
+    vim.fn.delete(file)
+  end)
+
+  it("classifies severity on column-less and column-range locations (mypy, javac, GHC, tsc)", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".py"
+    vim.fn.writefile({ "x = 1" }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+
+    local function sev(text)
+      return select(6, parse(text, buf))
+    end
+    assert.equals(0, sev(file .. ':3: note: Revealed type is "int"'))
+    assert.equals(1, sev(file .. ":2: warning: [removal] Thread.stop()"))
+    assert.equals(2, sev(file .. ":2: error: incompatible types"))
+    assert.equals(1, sev(file .. ":3:11-15: warning: [GHC-40910]"))
+    assert.equals(1, sev(file .. ":2:7 - warning TS6133: 'x' is declared"))
+    -- a word that is no severity keeps the location an error
+    assert.equals(2, sev(file .. ":2:in 'Object#f': bad (RuntimeError)"))
+    assert.equals(2, sev(file .. ":1: in local 'f'"))
+    vim.fn.delete(file)
+  end)
+
+  it("classifies Python warning classes as warnings", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".py"
+    vim.fn.writefile({ "x = 1" }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+
+    local output = file .. ":3: DeprecationWarning: use g instead"
+    local _, line, _, _, span_end, sev = parse(output, buf)
+    assert.equals(3, line)
+    assert.equals(1, sev)
+    assert.equals(output:find("Warning", 1, true) + 6, span_end)
+    assert.equals(1, select(6, parse(file .. ":3:1: UserWarning: hmm", buf)))
+    vim.fn.delete(file)
+  end)
+
   it("keeps severity when the fallback parser handles a path with spaces", function()
     -- the space defeats the built-in patterns and forces the fallback parser
     local file = vim.fn.tempname() .. " sp.c"
@@ -288,6 +362,7 @@ describe("tarminal errors", function()
     end
     assert.equals(1, sev(file .. ":1:1: warning: hmm"))
     assert.equals(0, sev(file .. ":1:1: note"))
+    assert.equals(1, sev(file .. ":1:1: Warning: hmm"))
     assert.equals(2, sev(file .. ":1:1"))
     vim.fn.delete(file)
   end)
