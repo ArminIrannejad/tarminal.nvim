@@ -235,40 +235,9 @@ local function parse_error_line(line, term_buf, cache, dir)
   end
 end
 
--- a hidden terminal keeps the pty size it last had
----@type table<integer, integer>
-local last_pty_width = {}
-
--- neovim sizes the pty to the widest window showing the terminal in any tab
--- less its sign number and fold columns
 ---@return integer
 local function pty_width(term_buf)
-  local layout, width = {}, nil
-  for _, win in ipairs(vim.fn.win_findbuf(term_buf)) do
-    local info = vim.fn.getwininfo(win)[1]
-    layout[#layout + 1] = win .. ":" .. info.width
-    local inner = info.width - info.textoff
-    -- a window no wider than its columns has no text to size the pty by
-    if inner > 0 then
-      width = math.max(width or 0, inner)
-    end
-  end
-  table.sort(layout)
-  local signature = table.concat(layout, ",")
-  local saved_layout = vim.b[term_buf].terminal_pty_layout
-  local saved_width = vim.b[term_buf].terminal_pty_width
-  if signature ~= "" and signature == saved_layout and saved_width then
-    -- termopen can hide inherited columns after sizing the pty; unchanged
-    -- outer widths mean the pty still has the width captured before that
-    width = saved_width
-  elseif width then
-    vim.b[term_buf].terminal_pty_layout = signature
-    vim.b[term_buf].terminal_pty_width = width
-  end
-  if width then
-    last_pty_width[term_buf] = width
-  end
-  return width or saved_width or last_pty_width[term_buf] or vim.o.columns
+  return term.pty_width(term_buf)
 end
 
 ---@return string logical, integer first_row, integer last_row

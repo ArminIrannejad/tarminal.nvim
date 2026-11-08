@@ -109,6 +109,32 @@ local function placement_of(win)
   return spec
 end
 
+-- the pty changes size when its outer window layout changes, not when a
+-- sign number or fold column alone appears or disappears
+---@return integer
+local function pty_width(buf)
+  local layout, width = {}, nil
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    local info = vim.fn.getwininfo(win)[1]
+    layout[#layout + 1] = win .. ":" .. info.width
+    local inner = info.width - info.textoff
+    if inner > 0 then
+      width = math.max(width or 0, inner)
+    end
+  end
+  table.sort(layout)
+  local signature = table.concat(layout, ",")
+  local saved_layout = vim.b[buf].terminal_pty_layout
+  local saved_width = vim.b[buf].terminal_pty_width
+  if signature ~= "" and signature == saved_layout and saved_width then
+    width = saved_width
+  elseif width then
+    vim.b[buf].terminal_pty_layout = signature
+    vim.b[buf].terminal_pty_width = width
+  end
+  return width or saved_width or vim.o.columns
+end
+
 ---@return tarminal.Placement|nil
 local function take_hidden(buf)
   for i, h in ipairs(hidden) do
@@ -122,6 +148,8 @@ end
 -- the last window can't close so blank it instead
 local function hide_window(win)
   local buf = vim.api.nvim_win_get_buf(win)
+  -- once the last window closes there is no layout left to recover this from
+  pty_width(buf)
   take_hidden(buf)
   table.insert(hidden, 1, { buf = buf, spec = placement_of(win) })
   placed[win] = nil
@@ -323,9 +351,7 @@ local function open_shell_term(name, hook)
   titles[buf] = name:gsub("^tarminal://", "")
   local win = open_window(buf)
   -- termopen sizes the pty before terminal-local columns and win_opts settle
-  local info = vim.fn.getwininfo(win)[1]
-  vim.b[buf].terminal_pty_width = math.max(info.width - info.textoff, 1)
-  vim.b[buf].terminal_pty_layout = win .. ":" .. info.width
+  pty_width(buf)
   local cmd, env, install = shell_cmd(config.opts.shell), nil, nil
   local pre = hook and vim.fn.tempname()
   if pre then
@@ -537,6 +563,7 @@ end
 M.shell_cmd = shell_cmd
 M.float_config = float_config
 M.refit_floats = refit_floats
+M.pty_width = pty_width
 M.find_win_for_buf = find_win_for_buf
 M.ensure_window_for_buf = ensure_window_for_buf
 M.close_window_for_buf = close_window_for_buf

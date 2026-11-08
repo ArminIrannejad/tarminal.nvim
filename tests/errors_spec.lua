@@ -1022,13 +1022,12 @@ describe("tarminal errors", function()
     local term_buf = vim.api.nvim_get_current_buf()
     local term_win = vim.api.nvim_get_current_win()
     local outer = vim.api.nvim_win_get_width(term_win)
-    -- termopen hides the inherited sign column after sizing the pty with it
-    assert.equals("no", vim.wo[term_win].signcolumn)
+    local column_hidden = vim.wo[term_win].signcolumn == "no"
     local pad = string.rep("x", outer - 2 - 10)
     vim.fn.chansend(vim.b[term_buf].terminal_job_id, pad .. "\n")
 
     local row
-    vim.wait(4000, function()
+    local seen = vim.wait(4000, function()
       for i, line in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
         if line:find(":2:1: error", 1, true) then
           row = i
@@ -1036,19 +1035,73 @@ describe("tarminal errors", function()
       end
       return row ~= nil
     end, 50)
-    assert.is_not_nil(row)
-    vim.api.nvim_win_set_cursor(term_win, { row, 0 })
-    tarminal.jump_to_error()
-    local name, cursor = vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)
+    local jumped, jump_err, name, cursor = false, nil, nil, nil
+    if row then
+      vim.api.nvim_win_set_cursor(term_win, { row, 0 })
+      jumped, jump_err = pcall(tarminal.jump_to_error)
+      if jumped then
+        name, cursor = vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)
+      end
+    end
     pcall(vim.cmd, "only")
     vim.fn.delete(file)
     vim.fn.delete(script)
 
+    assert.is_true(column_hidden)
+    assert.is_true(seen)
+    assert.is_true(jumped, jump_err)
     assert.equals(file, name)
     assert.same({ 2, 0 }, cursor)
   end)
 
-  it("jumps from the second row of a location wrapped beside a number column", function()
+  it("remembers the pty width when a resized terminal is hidden", function()
+    local file = "/tmp/tarminal-hidden-width-" .. vim.fn.getpid() .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      "read pad",
+      ("printf '%%s %%s:2:1: error: e\\n' \"$pad\" %s"):format(file),
+      "sleep 10",
+    }, script)
+    tarminal.setup({
+      shell = "sh " .. script,
+      split_position = "right",
+      split_width = 80,
+      win_opts = { number = true },
+    })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_width(term_win, 60)
+    local info = vim.fn.getwininfo(term_win)[1]
+    local resized_width = info.width - info.textoff
+    tarminal.toggle()
+
+    local pad = string.rep("x", resized_width - 10)
+    vim.fn.chansend(vim.b[term_buf].terminal_job_id, pad .. "\n")
+    local row
+    local seen = vim.wait(4000, function()
+      for i, line in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if line:find(":2:1: error", 1, true) then
+          row = i
+        end
+      end
+      return row ~= nil
+    end, 50)
+    local remembered = require("tarminal.term").pty_width(term_buf)
+    local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
+    local parsed = row and select(3, errors.scan_logical_at(lines, row, remembered, term_buf)) or nil
+
+    tarminal.toggle()
+    pcall(vim.cmd, "only")
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+    assert.is_true(seen)
+    assert.equals(resized_width, remembered)
+    assert.equals(file, parsed)
+  end)
+
+  it("jumps from a continuation row of a location wrapped beside a number column", function()
     local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
     vim.fn.writefile({ "int a;", "int b;" }, file)
     -- the padding is read only once the pty has its final size
@@ -1066,34 +1119,37 @@ describe("tarminal errors", function()
     vim.cmd("vnew")
     vim.api.nvim_set_current_win(term_win)
     vim.wo[term_win].number = true
-    -- wide enough that the rest of the path fits on the second row
-    vim.api.nvim_win_set_width(term_win, #file + 40)
+    vim.api.nvim_win_set_width(term_win, 80)
     local info = vim.fn.getwininfo(term_win)[1]
-    -- 9 cells of the path stay on the first row and the rest wraps
+    -- 9 cells of the path stay on the first row and the rest may wrap again
     local pad = string.rep("x", info.width - info.textoff - 10)
     vim.fn.chansend(vim.b[term_buf].terminal_job_id, pad .. "\n")
 
-    local row
-    vim.wait(4000, function()
-      for i, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
-        if l:find(":2:1: error", 1, true) then
+    local row, first_output
+    local seen = vim.wait(4000, function()
+      for i, line in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        first_output = vim.startswith(line, pad .. " /") and i or first_output
+        if line:find(":2:1: error", 1, true) then
           row = i
         end
       end
-      return row ~= nil
+      return row ~= nil and first_output ~= nil
     end, 50)
-    assert.is_not_nil(row)
-    local above = vim.api.nvim_buf_get_lines(term_buf, row - 2, row - 1, false)[1]
-
-    vim.api.nvim_win_set_cursor(term_win, { row, 0 })
-    tarminal.jump_to_error()
-    local name, cursor = vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)
-    -- after_each does not close the split so a failed assertion would leave it
+    local jumped, jump_err, name, cursor = false, nil, nil, nil
+    if row then
+      vim.api.nvim_win_set_cursor(term_win, { row, 0 })
+      jumped, jump_err = pcall(tarminal.jump_to_error)
+      if jumped then
+        name, cursor = vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)
+      end
+    end
     pcall(vim.cmd, "only")
     vim.fn.delete(file)
     vim.fn.delete(script)
+
     assert.is_true(info.textoff > 0)
-    assert.is_true(vim.startswith(above, pad .. " /"))
+    assert.is_true(seen)
+    assert.is_true(jumped, jump_err)
     assert.equals(file, name)
     assert.same({ 2, 0 }, cursor)
   end)
