@@ -14,11 +14,13 @@ local uv = vim.uv
 -- kept for the run: each line's parse and each path's resolution
 ---@class tarminal.ScanCache
 ---@field lines table<string, table> line text to its parse results
+---@field next_lines table<string, table> lines still visible in the current scan
 ---@field paths table<string, string|false> raw path to the file it resolved to
+---@field path_count integer
 
 ---@return tarminal.ScanCache
 local function new_cache()
-  return { lines = {}, paths = {} }
+  return { lines = {}, next_lines = {}, paths = {}, path_count = 0 }
 end
 
 local function clean_root(path)
@@ -109,6 +111,7 @@ local function resolve_file(path, term_buf, cache, dir)
   end
   if cache then
     cache.paths[key] = found or false
+    cache.path_count = cache.path_count + 1
   end
   return found
 end
@@ -239,11 +242,11 @@ local function parse_cached(line, term_buf, cache, dir)
     return parse_error_line(line, term_buf, nil, dir)
   end
   local key = dir and dir .. "\0" .. line or line
-  local hit = cache.lines[key]
+  local hit = cache.next_lines[key] or cache.lines[key]
   if not hit then
     hit = { parse_error_line(line, term_buf, cache, dir) }
-    cache.lines[key] = hit
   end
+  cache.next_lines[key] = hit
   return hit[1], hit[2], hit[3], hit[4], hit[5], hit[6]
 end
 
@@ -664,6 +667,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local width = pty_width(term_buf)
       local head = banner_row + echo_rows(term_buf, lines, banner_row, width)
       local dirs = dir_map(lines, head + 1, term_buf, width)
+      cache.next_lines = {}
       local i = head + 1
       while i <= #lines do
         local first, last, file, lnum, col, span_s, span_e, sev =
@@ -689,6 +693,10 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
           end
         end
         i = last + 1
+      end
+      cache.lines, cache.next_lines = cache.next_lines, {}
+      if cache.path_count > math.max(#lines * 4, 1000) then
+        cache.paths, cache.path_count = {}, 0
       end
       if diags then
         publish_diagnostics(diags)

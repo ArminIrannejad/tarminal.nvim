@@ -407,27 +407,51 @@ describe("tarminal errors", function()
       return "/nonexistent"
     end
 
-    errors.watch_run_output(buf, nil, 0, true)
-    local out = {}
-    for i = 1, 50 do
-      out[i] = ("missing%d/file.c:%d:1: error"):format(i, i)
-    end
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
-    vim.wait(2000, function()
-      return lookups > 0
-    end, 20)
-    vim.wait(400)
-    local first = lookups
-    -- every tick rescans the whole run but the new lines hold no paths
-    for i = 1, 3 do
-      vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "tail " .. i })
+    local ok, err = pcall(function()
+      errors.watch_run_output(buf, nil, 0, true)
+      local out = {}
+      for i = 1, 50 do
+        out[i] = ("missing%d/file.c:%d:1: error"):format(i, i)
+      end
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+      vim.wait(2000, function()
+        return lookups > 0
+      end, 20)
       vim.wait(400)
-    end
+      local first = lookups
+      -- every tick rescans the whole run but the new lines hold no paths
+      for i = 1, 3 do
+        vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "tail " .. i })
+        vim.wait(400)
+      end
+      assert.is_true(first >= 50)
+      assert.equals(first, lookups)
+
+      -- scrollback can discard unique lines during a banner-less long run;
+      -- a later tick drops their line and path cache entries too
+      for i = 1, 1001 do
+        out[i] = ("old%d/file.c:%d:1: error"):format(i, i)
+      end
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+      vim.wait(2000, function()
+        return lookups > first + 1000
+      end, 20)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "tail only" })
+      vim.wait(400)
+      local pruned = lookups
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, { out[1] })
+      assert.is_true(vim.wait(2000, function()
+        return lookups > pruned
+      end, 20))
+    end)
 
     platform.term_busy, platform.term_cwd = term_busy, term_cwd
-    vim.api.nvim_buf_delete(buf, { force = true })
-    assert.is_true(first >= 50)
-    assert.equals(first, lookups)
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+    if not ok then
+      error(err, 0)
+    end
   end)
 
   it("stops the error watcher when the run completes", function()
