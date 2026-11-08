@@ -83,8 +83,9 @@ Calling the setup function is optional; do it only to override defaults: >lua
         ...
       },
       error_patterns = {         -- error-location formats, tried in order
-        { pattern = [[at (%S+) line (%d+)]],  -- your own, added before built-ins
-          file = 1, lnum = 2, resolve = false },
+        { pattern = [[REMOTE%s+(%S+)%s+@%s+(%d+),(%d+)]],
+          file = 1, lnum = 2, col = 3, resolve = false,
+          contains = "REMOTE " },  -- optional literal prefilter
         ...
       },
       error_threshold = 0,       -- min severity to act on: 0 note | 1 warn | 2 error
@@ -231,10 +232,15 @@ shell integrations), read on |TermRequest|; otherwise it is nil.
 
                                                 *tarminal-shell-integration*
 A relative path in error output resolves against the directory the shell is
-actually in — not the one it started in. Where the OS answers directly
-(`/proc` on Linux/WSL and NetBSD, `lsof` on macOS, `procstat` on FreeBSD)
-tarminal asks it, and shells open untouched: nothing is typed at the prompt
-and nothing is cleared.
+actually in — not the one it started in. Paths containing a directory are
+also tried from workspace ancestors, stopping at a project root or before
+$HOME; this catches Cargo workspace paths while the shell is inside a member.
+After make or ninja reports "Entering directory", relative locations resolve
+there until its matching "Leaving directory" or the next run.
+
+Where the OS answers directly (`/proc` on Linux/WSL and NetBSD, `lsof` on
+macOS, `procstat` on FreeBSD) tarminal asks it, and shells open untouched:
+nothing is typed at the prompt and nothing is cleared.
 
 Only where no probe answers — OpenBSD, or a system missing `lsof`/procfs —
 and `shell_integration = true` (the default) does tarminal type a one-line
@@ -271,14 +277,16 @@ unit; single-line sends stay unwrapped.
 
 A file location in terminal output is recognized by matching each line
 against `error_patterns` in order; `file`, `lnum`, `col` and `type` are
-capture indices in the pattern. Your patterns are tried before the
-built-ins (which cover `path:line:col` and `File "..."` shapes). By default
-a match only counts when the file exists on disk, keeping false positives
-out; `resolve = false` trusts the pattern and takes the path as written, so
-a location that does not resolve against the terminal's directory (output
-from a subfolder, another machine) is still caught. `type` classifies a
-location as an error, warning or note — a capture index holding the word,
-or a fixed "error"/"warning"/"info". Warnings are highlighted with
+capture indices in the pattern, and optional `contains` is a literal
+prefilter. Your patterns are tried before the built-ins, which cover common
+colon, parenthesized, Python `File "..."`, and line-word locations from the
+default runners (including GHC, Free Pascal, Nim, Odin, Perl, PHP,
+C#/MSBuild, TypeScript, Groovy, mypy and javac). By default a match only
+counts when the file exists on disk, keeping false positives out; `resolve =
+false` trusts the pattern and takes the path as written, so output from
+another machine is still caught. `type` classifies a location as an error,
+warning or note — a capture index holding the word, or a fixed
+"error"/"warning"/"info". Warnings are highlighted with
 |TarminalWarning|, quickfix entries carry the severity, and
 `error_threshold` skips anything below it when parking, stepping between
 errors (next_error/prev_error) and collecting (set it to 2 to ignore
@@ -299,6 +307,11 @@ when the next run starts. They are only republished when the set changes,
 so a noisy run does not keep firing |DiagnosticChanged|. No buffer is
 created for them: a file that is not open gets its diagnostics when it is
 read. Terminal highlighting and parking stay with `park_on_error`.
+
+jump_to_error prefers a non-floating window already showing the file. It
+also considers other tabs when 'switchbuf' contains "usetab", records the
+old position in the jumplist, and opens a fold covering the destination, so
+|CTRL-O| returns and the target stays visible.
 
 With `close_on_jump = true` a successful jump_to_error closes the terminal
 window on its way out, leaving you on the error with the split gone — what

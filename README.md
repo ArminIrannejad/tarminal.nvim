@@ -246,10 +246,16 @@ and many shell integrations do, and `nil` otherwise.
 ### Shell integration
 
 A relative path in error output resolves against the directory the shell is
-actually in — not the one it started in. Where the OS can be asked directly
-(`/proc` on Linux/WSL and NetBSD, `lsof` on macOS, `procstat` on FreeBSD)
-tarminal just asks it, and opens shells untouched: nothing is typed at the
-prompt, nothing is cleared.
+actually in — not the one it started in. Paths with a directory component are
+also tried from workspace ancestors, stopping at a project root or before
+`$HOME`; this catches Cargo output such as `crates/foo/src/main.rs` while the
+shell is inside that crate. After make or ninja reports `Entering directory`,
+relative locations resolve there until its matching `Leaving directory` or the
+next run.
+
+Where the OS can be asked directly (`/proc` on Linux/WSL and NetBSD, `lsof` on
+macOS, `procstat` on FreeBSD) tarminal just asks it, and opens shells untouched:
+nothing is typed at the prompt, nothing is cleared.
 
 Only where no such probe answers — OpenBSD, or a stripped-down system missing
 `lsof`/procfs — does tarminal type a one-line setup snippet at the prompt and
@@ -347,23 +353,32 @@ require("tarminal").setup({
 
 tarminal recognizes an error location by matching each terminal line against a
 list of patterns. Each pattern says where the file, line, column, and (optional)
-severity are. The built-ins cover the common `path:line:col` and `File "..."`
-shapes; add your own for tools they miss:
+severity are. The built-ins cover common colon, parenthesized, Python
+`File "..."`, and line-word locations from the default runners, including GHC,
+Free Pascal, Nim, Odin, Perl, PHP, C#/MSBuild, TypeScript, Groovy, mypy, and
+javac. Add your own for tools they miss:
 
 ```lua
 require("tarminal").setup({
   error_patterns = {
-    -- "Died at /path/script.pl line 42."
-    { pattern = "at (%S+) line (%d+)", file = 1, lnum = 2, resolve = false },
+    -- "REMOTE build/file.c @ 42,7"
+    {
+      pattern = "REMOTE%s+(%S+)%s+@%s+(%d+),(%d+)",
+      file = 1,
+      lnum = 2,
+      col = 3,
+      resolve = false,
+      contains = "REMOTE ",
+    },
   },
 })
 ```
 
-`file`, `lnum`, `col`, and `type` are capture indices in `pattern`. Your patterns
-are tried before the built-ins. By default a match only counts if the file
-exists on disk (so false positives stay out); set `resolve = false` to trust the
-pattern and take the path as written — useful when the path won't resolve against
-the terminal's directory (output from a subfolder, another machine).
+`file`, `lnum`, `col`, and `type` are capture indices in `pattern`. `contains`
+is an optional literal prefilter for expensive patterns. Your patterns are tried
+before the built-ins. By default a match only counts if the file exists on disk
+(so false positives stay out); set `resolve = false` to trust the pattern and
+take the path as written — useful for output from another machine.
 
 `type` classifies a location as an error, warning, or note (either a capture
 index holding the word, or a fixed `"error"`/`"warning"`/`"info"`). Warnings get
@@ -371,9 +386,13 @@ their own highlight (`TarminalWarning`), quickfix entries carry the severity, an
 `error_threshold` skips anything below it when parking, stepping between errors
 (`next_error`/`prev_error`), and collecting — set it to `2` to ignore warnings.
 Pressing Enter (`jump_to_error`) on a line always jumps to its location, whatever
-the severity. Set `close_on_jump = true` to close the terminal on the way out, so
-you land on the error with the split gone — the same thing `quickfix.close_terminal`
-does for `errors_to_quickfix`.
+the severity. A jump prefers a non-floating window already showing the file; it
+also considers other tabs when `'switchbuf'` contains `usetab`. The previous
+position is added to the jumplist, and a closed fold over the target is opened,
+so `<C-o>` returns and the destination stays visible. Set `close_on_jump = true`
+to close the terminal on the way out, so you land on the error with the split
+gone — the same thing `quickfix.close_terminal` does for
+`errors_to_quickfix`.
 
 ### Diagnostics
 
