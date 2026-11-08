@@ -147,6 +147,118 @@ describe("tarminal errors", function()
     assert.is_nil(col)
   end)
 
+  it("parses paren line and column locations (Odin, Nim, Pascal, MSBuild, tsc)", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".pas"
+    vim.fn.writefile({ "begin end." }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+
+    for _, sep in ipairs({ ":", ", ", "," }) do
+      local loc = file .. "(3" .. sep .. "7)"
+      for _, output in ipairs({ loc .. " Error: boom", loc .. ": error CS0103: boom" }) do
+        local parsed_file, line, col, span_start, span_end = parse(output, buf)
+        assert.equals(file, parsed_file)
+        assert.equals(3, line)
+        assert.equals(7, col)
+        assert.equals(1, span_start)
+        -- the span runs through the severity word
+        assert.equals(output:find("rror", 1, true) + 3, span_end)
+      end
+    end
+    vim.fn.delete(file)
+  end)
+
+  it("parses paren line locations (Pascal, PHP stack frame)", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".php"
+    vim.fn.writefile({ "<?php" }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+
+    local parsed_file, line, col = parse(file .. "(5) Fatal: There were 1 errors", buf)
+    assert.equals(file, parsed_file)
+    assert.equals(5, line)
+    assert.is_nil(col)
+
+    local output = "#0 " .. file .. "(3): f()"
+    local span_start, span_end
+    parsed_file, line, col, span_start, span_end = parse(output, buf)
+    vim.fn.delete(file)
+    assert.equals(file, parsed_file)
+    assert.equals(3, line)
+    assert.is_nil(col)
+    -- the frame's function name stays out of the span
+    assert.equals(output:find(file, 1, true), span_start)
+    assert.equals(output:find("(3)", 1, true) + 2, span_end)
+  end)
+
+  it("parses Perl die locations", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".pl"
+    vim.fn.writefile({ "die" }, file)
+
+    local output = "bad at " .. file .. " line 2."
+    local parsed_file, line, col, span_start = errors.parse_error_line(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(2, line)
+    assert.is_nil(col)
+    assert.equals(output:find(file, 1, true), span_start)
+  end)
+
+  it("parses PHP on-line locations", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".php"
+    vim.fn.writefile({ "<?php" }, file)
+
+    local output = "  thrown in " .. file .. " on line 2"
+    local parsed_file, line, col = errors.parse_error_line(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(2, line)
+    assert.is_nil(col)
+  end)
+
+  it("parses bash script error locations", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".sh"
+    vim.fn.writefile({ "foo" }, file)
+
+    local output = file .. ": line 3: foo: command not found"
+    local parsed_file, line, col = errors.parse_error_line(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(3, line)
+    assert.is_nil(col)
+  end)
+
+  it("parses GHC locations that span several lines", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".hs"
+    vim.fn.writefile({ "main = pure ()" }, file)
+
+    local output = file .. ":(3,11)-(4,12): error: [GHC-39999]"
+    local parsed_file, line, col = errors.parse_error_line(output, vim.api.nvim_get_current_buf())
+    vim.fn.delete(file)
+
+    assert.equals(file, parsed_file)
+    assert.equals(3, line)
+    assert.equals(11, col)
+  end)
+
+  it("parses Groovy locations by their line and column tail", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".groovy"
+    vim.fn.writefile({ "}" }, file)
+    local parse = errors.parse_error_line
+    local buf = vim.api.nvim_get_current_buf()
+
+    local parsed_file, line, col = parse(file .. ": 3: Unexpected input: '}' @ line 3, column 1.", buf)
+    assert.equals(file, parsed_file)
+    assert.equals(3, line)
+    assert.equals(1, col)
+    -- dash names itself and a line with the same shape minus the tail
+    assert.is_nil(parse(file .. ": 1: foo: not found", buf))
+    vim.fn.delete(file)
+  end)
+
   it("classifies severity from the error pattern's type capture", function()
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int main() {}" }, file)

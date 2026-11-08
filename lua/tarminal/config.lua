@@ -194,7 +194,21 @@ local defaults = {
   error_patterns = {
     { pattern = PATH .. ":(%d+):(%d+):%s*(%l+)", file = 1, lnum = 2, col = 3, type = 4 },
     { pattern = PATH .. ":(%d+):(%d+)", file = 1, lnum = 2, col = 3 },
+    -- ghc span over several lines
+    { pattern = PATH .. ":%((%d+),(%d+)%)%-%(%d+,%d+%):%s*(%a+)", file = 1, lnum = 2, col = 3, type = 4 },
+    -- odin nim pascal msbuild tsc and php frames put the location in parens
+    -- the frontier keeps a php frame's function name out of the span
+    { pattern = PATH .. "%((%d+)[,:]%s*(%d+)%):?%s*(%a+)%f[:%s]", file = 1, lnum = 2, col = 3, type = 4 },
+    { pattern = PATH .. "%((%d+)[,:]%s*(%d+)%)", file = 1, lnum = 2, col = 3 },
+    { pattern = PATH .. "%((%d+)%):?%s*(%a+)%f[:%s]", file = 1, lnum = 2, type = 3 },
+    { pattern = PATH .. "%((%d+)%)", file = 1, lnum = 2 },
     { pattern = PATH .. ":(%d+):", file = 1, lnum = 2 },
+    -- bash then php then perl
+    { pattern = PATH .. ": line (%d+)", file = 1, lnum = 2 },
+    { pattern = PATH .. " on line (%d+)", file = 1, lnum = 2 },
+    { pattern = PATH .. " line (%d+)", file = 1, lnum = 2 },
+    -- groovy anchored on its tail so dash's "/bin/sh: 1:" stays unlinked
+    { pattern = PATH .. ": (%d+): .-@ line %d+, column (%d+)%.", file = 1, lnum = 2, col = 3 },
     { pattern = 'File "([^"]+)", line (%d+)', file = 1, lnum = 2 },
   },
   error_threshold = 0,
