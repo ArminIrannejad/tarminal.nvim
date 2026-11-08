@@ -747,6 +747,56 @@ describe("tarminal errors", function()
     vim.fn.delete(script)
   end)
 
+  it("jumps from the second row of a location wrapped beside a number column", function()
+    local file = vim.fn.resolve(vim.fn.tempname()) .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    -- the padding is read only once the pty has its final size
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      "read pad",
+      ("printf '%%s %%s:2:1: error: e\\n' \"$pad\" %s"):format(file),
+      "sleep 10",
+    }, script)
+    tarminal.setup({ shell = "sh " .. script })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+    -- a column option alone does not resize the pty so resize after setting it
+    vim.cmd("vnew")
+    vim.api.nvim_set_current_win(term_win)
+    vim.wo[term_win].number = true
+    -- wide enough that the rest of the path fits on the second row
+    vim.api.nvim_win_set_width(term_win, #file + 40)
+    local info = vim.fn.getwininfo(term_win)[1]
+    -- 9 cells of the path stay on the first row and the rest wraps
+    local pad = string.rep("x", info.width - info.textoff - 10)
+    vim.fn.chansend(vim.b[term_buf].terminal_job_id, pad .. "\n")
+
+    local row
+    vim.wait(4000, function()
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
+        if l:find(":2:1: error", 1, true) then
+          row = i
+        end
+      end
+      return row ~= nil
+    end, 50)
+    assert.is_not_nil(row)
+    local above = vim.api.nvim_buf_get_lines(term_buf, row - 2, row - 1, false)[1]
+
+    vim.api.nvim_win_set_cursor(term_win, { row, 0 })
+    tarminal.jump_to_error()
+    local name, cursor = vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)
+    -- after_each does not close the split so a failed assertion would leave it
+    pcall(vim.cmd, "only")
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+    assert.is_true(info.textoff > 0)
+    assert.is_true(vim.startswith(above, pad .. " /"))
+    assert.equals(file, name)
+    assert.same({ 2, 0 }, cursor)
+  end)
+
   it("hides the terminal when closing it for quickfix as the only window", function()
     local file = vim.fn.tempname() .. ".c"
     vim.fn.writefile({ "int a;" }, file)

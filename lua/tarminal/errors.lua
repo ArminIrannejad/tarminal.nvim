@@ -218,10 +218,27 @@ local function parse_error_line(line, term_buf, cache, dir)
   end
 end
 
+-- a hidden terminal keeps the pty size it last had
+---@type table<integer, integer>
+local last_pty_width = {}
+
+-- neovim sizes the pty to the widest window showing the terminal in any tab
+-- less its sign number and fold columns
 ---@return integer
 local function pty_width(term_buf)
-  local win = term.find_win_for_buf(term_buf)
-  return win and vim.api.nvim_win_get_width(win) or vim.o.columns
+  local width
+  for _, win in ipairs(vim.fn.win_findbuf(term_buf)) do
+    local info = vim.fn.getwininfo(win)[1]
+    local inner = info.width - info.textoff
+    -- a window no wider than its columns has no text to size the pty by
+    if inner > 0 then
+      width = math.max(width or 0, inner)
+    end
+  end
+  if width then
+    last_pty_width[term_buf] = width
+  end
+  return width or last_pty_width[term_buf] or vim.o.columns
 end
 
 ---@return string logical, integer first_row, integer last_row
