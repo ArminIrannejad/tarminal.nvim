@@ -322,6 +322,10 @@ local function open_shell_term(name, hook)
   local buf = vim.api.nvim_create_buf(true, false)
   titles[buf] = name:gsub("^tarminal://", "")
   local win = open_window(buf)
+  -- termopen sizes the pty before terminal-local columns and win_opts settle
+  local info = vim.fn.getwininfo(win)[1]
+  vim.b[buf].terminal_pty_width = math.max(info.width - info.textoff, 1)
+  vim.b[buf].terminal_pty_layout = win .. ":" .. info.width
   local cmd, env, install = shell_cmd(config.opts.shell), nil, nil
   local pre = hook and vim.fn.tempname()
   if pre then
