@@ -378,6 +378,28 @@ local function reusable(win, tab)
     and not KEEP[vim.bo[vim.api.nvim_win_get_buf(win)].buftype]
 end
 
+-- a window already showing the file so the layout stays as it is
+-- other tabs only count when 'switchbuf' has usetab like :sbuffer
+---@param buf integer
+---@return integer|nil win
+local function win_showing(buf)
+  local tabs = { vim.api.nvim_get_current_tabpage() }
+  if vim.tbl_contains(vim.opt.switchbuf:get(), "usetab") then
+    for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
+      if tab ~= tabs[1] then
+        tabs[#tabs + 1] = tab
+      end
+    end
+  end
+  for _, tab in ipairs(tabs) do
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+      if vim.api.nvim_win_get_buf(win) == buf and vim.api.nvim_win_get_config(win).relative == "" then
+        return win
+      end
+    end
+  end
+end
+
 ---@return integer|nil win
 local function pick_code_win()
   local wins = {}
@@ -428,16 +450,27 @@ function M.jump_to_error()
     return
   end
 
-  local win = pick_code_win()
+  local buf = vim.fn.bufadd(file)
+  vim.bo[buf].buflisted = true
+  local close = config.opts.close_on_jump or floating
+  local win = win_showing(buf)
+  if win and close and vim.api.nvim_win_get_tabpage(win) ~= vim.api.nvim_get_current_tabpage() then
+    -- the terminal is only found in its own tab so hide it before leaving
+    term.close_window_for_buf(term_buf)
+    close = false
+  end
+  win = win or pick_code_win()
   if not win then
     vim.cmd("aboveleft split")
     win = vim.api.nvim_get_current_win()
   end
   vim.api.nvim_set_current_win(win)
 
-  local buf = vim.fn.bufadd(file)
-  vim.bo[buf].buflisted = true
-  local ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
+  -- a winfixbuf window already showing the file must not split it in two
+  local ok, err = true, nil
+  if vim.api.nvim_win_get_buf(win) ~= buf then
+    ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
+  end
   if not ok then
     -- a winfixbuf window refuses a new buffer so split off that one
     vim.cmd("aboveleft split")
@@ -453,7 +486,7 @@ function M.jump_to_error()
   vim.api.nvim_win_set_cursor(win, { lnum, math.max((col or 1) - 1, 0) })
   vim.cmd("normal! zz")
 
-  if config.opts.close_on_jump or floating then
+  if close then
     term.close_window_for_buf(term_buf)
   end
 end
