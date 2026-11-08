@@ -299,6 +299,42 @@ describe("tarminal errors", function()
     assert.is_true(stopped)
   end)
 
+  it("resolves the output once however often the watcher rescans it", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    local term_busy, term_cwd = platform.term_busy, platform.term_cwd
+    local lookups = 0
+    platform.term_busy = function()
+      return true
+    end
+    -- every relative path a scan resolves asks for the terminal's cwd
+    platform.term_cwd = function()
+      lookups = lookups + 1
+      return "/nonexistent"
+    end
+
+    errors.watch_run_output(buf, nil, 0, true)
+    local out = {}
+    for i = 1, 50 do
+      out[i] = ("missing%d/file.c:%d:1: error"):format(i, i)
+    end
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+    vim.wait(2000, function()
+      return lookups > 0
+    end, 20)
+    vim.wait(400)
+    local first = lookups
+    -- every tick rescans the whole run but the new lines hold no paths
+    for i = 1, 3 do
+      vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "tail " .. i })
+      vim.wait(400)
+    end
+
+    platform.term_busy, platform.term_cwd = term_busy, term_cwd
+    vim.api.nvim_buf_delete(buf, { force = true })
+    assert.is_true(first >= 50)
+    assert.equals(first, lookups)
+  end)
+
   it("stops the error watcher when the run completes", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

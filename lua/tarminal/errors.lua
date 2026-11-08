@@ -10,8 +10,25 @@ local M = {}
 
 local uv = vim.uv
 
+-- a run's output is rescanned on every tick so the lookups it repeats are
+-- kept for the run: each line's parse and each path's resolution
+---@class tarminal.ScanCache
+---@field lines table<string, table> line text to its parse results
+---@field paths table<string, string|false> raw path to the file it resolved to
+
+---@return tarminal.ScanCache
+local function new_cache()
+  return { lines = {}, paths = {} }
+end
+
+---@param cache tarminal.ScanCache|nil
 ---@return string|nil
-local function resolve_file(path, term_buf)
+local function resolve_file(path, term_buf, cache)
+  local hit = cache and cache.paths[path]
+  if hit ~= nil then
+    return hit or nil
+  end
+  local raw = path
   if path:sub(1, 1) == "~" then
     path = vim.fn.expand(path)
   end
@@ -26,27 +43,33 @@ local function resolve_file(path, term_buf)
     end
     candidates[#candidates + 1] = vim.fn.getcwd() .. "/" .. path
   end
+  local found
   for _, p in ipairs(candidates) do
     if vim.fn.filereadable(p) == 1 then
-      return p
+      found = p
+      break
     end
   end
+  if cache then
+    cache.paths[raw] = found or false
+  end
+  return found
 end
 
 ---@return string|nil path, integer|nil offset byte offset of the path
-local function resolve_file_suffix(candidate, term_buf)
+local function resolve_file_suffix(candidate, term_buf, cache)
   local trimmed = vim.trim(candidate)
   local trim_offset = candidate:find(trimmed, 1, true) - 1
   local start = 1
 
   while true do
     local suffix = trimmed:sub(start)
-    local path = resolve_file(suffix, term_buf)
+    local path = resolve_file(suffix, term_buf, cache)
     if path then
       return path, trim_offset + start - 1
     end
     if suffix:match("^[%(%[<'\"]") then
-      path = resolve_file(suffix:sub(2), term_buf)
+      path = resolve_file(suffix:sub(2), term_buf, cache)
       if path then
         return path, trim_offset + start
       end
@@ -72,7 +95,7 @@ end
 
 ---@return string|nil file, integer|nil lnum, integer|nil col,
 ---        integer|nil span_s, integer|nil span_e, integer|nil sev
-local function match_patterns(line, term_buf)
+local function match_patterns(line, term_buf, cache)
   local best
   for _, pat in ipairs(config.opts.error_patterns) do
     local init = 1
@@ -84,7 +107,7 @@ local function match_patterns(line, term_buf)
         break
       end
       local raw = caps[2 + pat.file]
-      local path = resolve_file(raw, term_buf)
+      local path = resolve_file(raw, term_buf, cache)
       if not path and pat.resolve == false then
         path = raw:sub(1, 1) == "~" and vim.fn.expand(raw) or raw
       end
@@ -112,8 +135,9 @@ end
 
 ---@return string|nil file, integer|nil lnum, integer|nil col
 ---@return integer|nil span_s, integer|nil span_e, integer|nil sev
-local function parse_error_line(line, term_buf)
-  local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf)
+---@param cache tarminal.ScanCache|nil
+local function parse_error_line(line, term_buf, cache)
+  local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf, cache)
   if file then
     return file, lnum, col, span_s, span_e, sev
   end
@@ -124,7 +148,7 @@ local function parse_error_line(line, term_buf)
     if not s then
       return
     end
-    local path, offset = resolve_file_suffix(f, term_buf)
+    local path, offset = resolve_file_suffix(f, term_buf, cache)
     if path then
       local word = line:match("^:?%s*(%l+)", e + 1)
       return path, tonumber(l), tonumber(c), s + offset, e, severity_rank(word)
@@ -151,14 +175,28 @@ local function logical_line_at(lines, row, width)
   return table.concat(lines, "", first, last), first, last
 end
 
+---@param cache tarminal.ScanCache|nil
+local function parse_cached(line, term_buf, cache)
+  if not cache then
+    return parse_error_line(line, term_buf)
+  end
+  local hit = cache.lines[line]
+  if not hit then
+    hit = { parse_error_line(line, term_buf, cache) }
+    cache.lines[line] = hit
+  end
+  return hit[1], hit[2], hit[3], hit[4], hit[5], hit[6]
+end
+
+---@param cache tarminal.ScanCache|nil
 ---@return integer first, integer last, string|nil file, integer|nil lnum,
 ---        integer|nil col, integer|nil span_s, integer|nil span_e, integer|nil sev
-local function scan_logical_at(lines, row, width, term_buf, min_row, max_row)
+local function scan_logical_at(lines, row, width, term_buf, min_row, max_row, cache)
   local logical, first, last = logical_line_at(lines, row, width)
-  local file, lnum, col, s, e, sev = parse_error_line(logical, term_buf)
+  local file, lnum, col, s, e, sev = parse_cached(logical, term_buf, cache)
   if not file and first ~= last then
     for r = math.max(first, min_row or first), math.min(last, max_row or last) do
-      file, lnum, col, s, e, sev = parse_error_line(lines[r], term_buf)
+      file, lnum, col, s, e, sev = parse_cached(lines[r], term_buf, cache)
       if file then
         return r, r, file, lnum, col, s, e, sev
       end
@@ -281,7 +319,7 @@ local function clear_diagnostics()
   vim.diagnostic.reset(diag_ns)
 end
 
-local function diag_message(lines, first, last, span_e, term_buf, min_row)
+local function diag_message(lines, first, last, span_e, term_buf, min_row, cache)
   local logical = table.concat(lines, "", first, last)
   local rest = vim.trim((logical:sub(span_e + 1):gsub("^[%s:,]+", "")))
   if vim.trim(logical):match('^File "') then
@@ -295,7 +333,7 @@ local function diag_message(lines, first, last, span_e, term_buf, min_row)
     return rest
   end
   local above = first - 1 > min_row and vim.trim(lines[first - 1]) or ""
-  if above ~= "" and not parse_error_line(above, term_buf) then
+  if above ~= "" and not parse_cached(above, term_buf, cache) then
     return above
   end
   return vim.trim(logical)
@@ -401,6 +439,7 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
   end
 
   local elapsed = 0
+  local cache = new_cache()
   local pinned = banner_token == nil
   local pin_row = nil
   local parked = false
@@ -498,14 +537,15 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       local head = banner_row + echo_rows(term_buf, lines, banner_row, width)
       local i = head + 1
       while i <= #lines do
-        local first, last, file, lnum, col, span_s, span_e, sev = scan_logical_at(lines, i, width, term_buf, i)
+        local first, last, file, lnum, col, span_s, span_e, sev =
+          scan_logical_at(lines, i, width, term_buf, i, nil, cache)
         if file and diags and sev >= config.opts.error_threshold then
           diags[file] = diags[file] or {}
           table.insert(diags[file], {
             lnum = math.max((lnum or 1) - 1, 0),
             col = math.max((col or 1) - 1, 0),
             severity = DIAG_SEVERITY[sev],
-            message = diag_message(lines, first, last, span_e, term_buf, head),
+            message = diag_message(lines, first, last, span_e, term_buf, head, cache),
             source = "tarminal",
           })
         end
