@@ -21,14 +21,32 @@ local function new_cache()
   return { lines = {}, paths = {} }
 end
 
+-- a tool can print paths relative to a root above where it ran
+-- like cargo in a workspace member: crates/foo/src/main.rs
+-- only paths with a directory in them are tried there and never against
+-- $HOME or / where a bare name would match anything
+local function add_ancestors(candidates, base, path)
+  if not path:find("/", 1, true) or path:match("^%.%.?/") then
+    return
+  end
+  local home = uv.os_homedir()
+  for parent in vim.fs.parents(base) do
+    if parent == "/" or parent == home then
+      return
+    end
+    candidates[#candidates + 1] = parent .. "/" .. path
+  end
+end
+
 ---@param cache tarminal.ScanCache|nil
+---@param dir string|nil directory make or ninja said it entered
 ---@return string|nil
-local function resolve_file(path, term_buf, cache)
-  local hit = cache and cache.paths[path]
+local function resolve_file(path, term_buf, cache, dir)
+  local key = dir and dir .. "\0" .. path or path
+  local hit = cache and cache.paths[key]
   if hit ~= nil then
     return hit or nil
   end
-  local raw = path
   if path:sub(1, 1) == "~" then
     path = vim.fn.expand(path)
   end
@@ -37,11 +55,15 @@ local function resolve_file(path, term_buf, cache)
     candidates = { path }
   else
     candidates = {}
+    if dir then
+      candidates[#candidates + 1] = dir .. "/" .. path
+    end
     local cwd = platform.term_cwd(term_buf)
     if cwd then
       candidates[#candidates + 1] = cwd .. "/" .. path
     end
     candidates[#candidates + 1] = vim.fn.getcwd() .. "/" .. path
+    add_ancestors(candidates, cwd or vim.fn.getcwd(), path)
   end
   local found
   for _, p in ipairs(candidates) do
@@ -51,25 +73,25 @@ local function resolve_file(path, term_buf, cache)
     end
   end
   if cache then
-    cache.paths[raw] = found or false
+    cache.paths[key] = found or false
   end
   return found
 end
 
 ---@return string|nil path, integer|nil offset byte offset of the path
-local function resolve_file_suffix(candidate, term_buf, cache)
+local function resolve_file_suffix(candidate, term_buf, cache, dir)
   local trimmed = vim.trim(candidate)
   local trim_offset = candidate:find(trimmed, 1, true) - 1
   local start = 1
 
   while true do
     local suffix = trimmed:sub(start)
-    local path = resolve_file(suffix, term_buf, cache)
+    local path = resolve_file(suffix, term_buf, cache, dir)
     if path then
       return path, trim_offset + start - 1
     end
     if suffix:match("^[%(%[<'\"]") then
-      path = resolve_file(suffix:sub(2), term_buf, cache)
+      path = resolve_file(suffix:sub(2), term_buf, cache, dir)
       if path then
         return path, trim_offset + start
       end
@@ -95,7 +117,7 @@ end
 
 ---@return string|nil file, integer|nil lnum, integer|nil col,
 ---        integer|nil span_s, integer|nil span_e, integer|nil sev
-local function match_patterns(line, term_buf, cache)
+local function match_patterns(line, term_buf, cache, dir)
   local best
   for _, pat in ipairs(config.opts.error_patterns) do
     local init = 1
@@ -107,7 +129,7 @@ local function match_patterns(line, term_buf, cache)
         break
       end
       local raw = caps[2 + pat.file]
-      local path = resolve_file(raw, term_buf, cache)
+      local path = resolve_file(raw, term_buf, cache, dir)
       if not path and pat.resolve == false then
         path = raw:sub(1, 1) == "~" and vim.fn.expand(raw) or raw
       end
@@ -136,8 +158,9 @@ end
 ---@return string|nil file, integer|nil lnum, integer|nil col
 ---@return integer|nil span_s, integer|nil span_e, integer|nil sev
 ---@param cache tarminal.ScanCache|nil
-local function parse_error_line(line, term_buf, cache)
-  local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf, cache)
+---@param dir string|nil directory relative paths are tried against first
+local function parse_error_line(line, term_buf, cache, dir)
+  local file, lnum, col, span_s, span_e, sev = match_patterns(line, term_buf, cache, dir)
   if file then
     return file, lnum, col, span_s, span_e, sev
   end
@@ -148,7 +171,7 @@ local function parse_error_line(line, term_buf, cache)
     if not s then
       return
     end
-    local path, offset = resolve_file_suffix(f, term_buf, cache)
+    local path, offset = resolve_file_suffix(f, term_buf, cache, dir)
     if path then
       local word = line:match("^:?%s*(%l+)", e + 1)
       return path, tonumber(l), tonumber(c), s + offset, e, severity_rank(word)
@@ -176,27 +199,69 @@ local function logical_line_at(lines, row, width)
 end
 
 ---@param cache tarminal.ScanCache|nil
-local function parse_cached(line, term_buf, cache)
+local function parse_cached(line, term_buf, cache, dir)
   if not cache then
-    return parse_error_line(line, term_buf)
+    return parse_error_line(line, term_buf, nil, dir)
   end
-  local hit = cache.lines[line]
+  local key = dir and dir .. "\0" .. line or line
+  local hit = cache.lines[key]
   if not hit then
-    hit = { parse_error_line(line, term_buf, cache) }
-    cache.lines[line] = hit
+    hit = { parse_error_line(line, term_buf, cache, dir) }
+    cache.lines[key] = hit
   end
   return hit[1], hit[2], hit[3], hit[4], hit[5], hit[6]
 end
 
+-- the directory in a make or ninja "Entering directory 'dir'" line
+-- quoted `dir' 'dir' or ‘dir’ depending on the version and locale
+---@param word string "Entering" or "Leaving"
+---@return string|nil
+local function announced_dir(line, word)
+  local dir = line:match("^%s*%S+: " .. word .. " directory (.-)%s*$")
+  if not dir then
+    return nil
+  end
+  dir = dir:gsub("^[`'\"]", ""):gsub("^\226\128\152", "")
+  return (dir:gsub("['\"]$", ""):gsub("\226\128\153$", ""))
+end
+
+-- paths printed after make -C or ninja -C are relative to the directory it
+-- entered until make leaves it again
+-- a RUN banner starts over so a make cut short can't leak into the next run
+---@return table<integer, string>|nil dirs row to its directory or nil when none
+local function dir_map(lines, from, term_buf)
+  local dirs, stack, any = {}, {}, false
+  for row = from or 1, #lines do
+    local line = lines[row]
+    if line:find(" directory ", 1, true) then
+      local entered = announced_dir(line, "Entering")
+      if entered then
+        if entered:sub(1, 1) ~= "/" then
+          entered = (stack[#stack] or platform.term_cwd(term_buf) or vim.fn.getcwd()) .. "/" .. entered
+        end
+        stack[#stack + 1] = entered
+        any = true
+      elseif announced_dir(line, "Leaving") then
+        stack[#stack] = nil
+      end
+    elseif line:match("^=====") and line:find("RUN", 1, true) then
+      stack = {}
+    end
+    dirs[row] = stack[#stack]
+  end
+  return any and dirs or nil
+end
+
 ---@param cache tarminal.ScanCache|nil
+---@param dirs table<integer, string>|nil from dir_map
 ---@return integer first, integer last, string|nil file, integer|nil lnum,
 ---        integer|nil col, integer|nil span_s, integer|nil span_e, integer|nil sev
-local function scan_logical_at(lines, row, width, term_buf, min_row, max_row, cache)
+local function scan_logical_at(lines, row, width, term_buf, min_row, max_row, cache, dirs)
   local logical, first, last = logical_line_at(lines, row, width)
-  local file, lnum, col, s, e, sev = parse_cached(logical, term_buf, cache)
+  local file, lnum, col, s, e, sev = parse_cached(logical, term_buf, cache, dirs and dirs[first])
   if not file and first ~= last then
     for r = math.max(first, min_row or first), math.min(last, max_row or last) do
-      file, lnum, col, s, e, sev = parse_cached(lines[r], term_buf, cache)
+      file, lnum, col, s, e, sev = parse_cached(lines[r], term_buf, cache, dirs and dirs[r])
       if file then
         return r, r, file, lnum, col, s, e, sev
       end
@@ -260,7 +325,8 @@ function M.jump_to_error()
   local floating = vim.api.nvim_win_get_config(0).relative ~= ""
   local lines = vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)
   local row = vim.api.nvim_win_get_cursor(0)[1]
-  local _, _, file, lnum, col = scan_logical_at(lines, row, pty_width(term_buf), term_buf)
+  local dirs = dir_map(lines, 1, term_buf)
+  local _, _, file, lnum, col = scan_logical_at(lines, row, pty_width(term_buf), term_buf, nil, nil, nil, dirs)
   if not file then
     vim.notify("No file location on this line", vim.log.levels.WARN)
     return
@@ -319,7 +385,7 @@ local function clear_diagnostics()
   vim.diagnostic.reset(diag_ns)
 end
 
-local function diag_message(lines, first, last, span_e, term_buf, min_row, cache)
+local function diag_message(lines, first, last, span_e, term_buf, min_row, cache, dirs)
   local logical = table.concat(lines, "", first, last)
   local rest = vim.trim((logical:sub(span_e + 1):gsub("^[%s:,]+", "")))
   if vim.trim(logical):match('^File "') then
@@ -333,7 +399,7 @@ local function diag_message(lines, first, last, span_e, term_buf, min_row, cache
     return rest
   end
   local above = first - 1 > min_row and vim.trim(lines[first - 1]) or ""
-  if above ~= "" and not parse_cached(above, term_buf, cache) then
+  if above ~= "" and not parse_cached(above, term_buf, cache, dirs and dirs[first - 1]) then
     return above
   end
   return vim.trim(logical)
@@ -535,17 +601,18 @@ local function watch_run_output(term_buf, banner_token, start_row, scan_errors)
       vim.api.nvim_buf_clear_namespace(term_buf, ns, banner_row, -1)
       local width = pty_width(term_buf)
       local head = banner_row + echo_rows(term_buf, lines, banner_row, width)
+      local dirs = dir_map(lines, head + 1, term_buf)
       local i = head + 1
       while i <= #lines do
         local first, last, file, lnum, col, span_s, span_e, sev =
-          scan_logical_at(lines, i, width, term_buf, i, nil, cache)
+          scan_logical_at(lines, i, width, term_buf, i, nil, cache, dirs)
         if file and diags and sev >= config.opts.error_threshold then
           diags[file] = diags[file] or {}
           table.insert(diags[file], {
             lnum = math.max((lnum or 1) - 1, 0),
             col = math.max((col or 1) - 1, 0),
             severity = DIAG_SEVERITY[sev],
-            message = diag_message(lines, first, last, span_e, term_buf, head, cache),
+            message = diag_message(lines, first, last, span_e, term_buf, head, cache, dirs),
             source = "tarminal",
           })
         end
@@ -579,10 +646,11 @@ local function goto_error(dir)
   local row = vim.api.nvim_win_get_cursor(0)[1]
 
   local _, cur_first, cur_last = logical_line_at(lines, row, width)
+  local cache, dirs = new_cache(), dir_map(lines, 1, term_buf)
   local i = dir > 0 and cur_last + 1 or cur_first - 1
   while i >= 1 and i <= #lines do
     local first, last, file, _, _, _, _, sev =
-      scan_logical_at(lines, i, width, term_buf, dir > 0 and i or nil, dir < 0 and i or nil)
+      scan_logical_at(lines, i, width, term_buf, dir > 0 and i or nil, dir < 0 and i or nil, cache, dirs)
     if file and sev >= config.opts.error_threshold then
       vim.api.nvim_win_set_cursor(0, { first, 0 })
       return
@@ -628,10 +696,11 @@ function M.errors_to_quickfix()
   start_row = start_row + echo_rows(term_buf, lines, start_row - 1, width)
 
   local items = {}
+  local cache, dirs = new_cache(), dir_map(lines, start_row, term_buf)
   local i = start_row
   while i <= #lines do
     -- scanned so a width-filling line can't swallow the error under it
-    local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf, i)
+    local first, last, file, lnum, col, _, _, sev = scan_logical_at(lines, i, width, term_buf, i, nil, cache, dirs)
     if file and sev >= config.opts.error_threshold then
       items[#items + 1] = {
         filename = file,
@@ -678,6 +747,7 @@ M.flush_diagnostics = flush_diagnostics
 M.parse_error_line = parse_error_line
 M.logical_line_at = logical_line_at
 M.scan_logical_at = scan_logical_at
+M.dir_map = dir_map
 M.watch_run_output = watch_run_output
 M.follow_tail = follow_tail
 M.define_highlight = define_error_highlight

@@ -201,6 +201,72 @@ describe("tarminal errors", function()
     assert.equals('File "([^"]+)", line (%d+)', pats[#pats].pattern)
   end)
 
+  it("resolves a path printed relative to a root above the terminal's directory", function()
+    local root = vim.fn.resolve(vim.fn.tempname())
+    local member = root .. "/crates/foo"
+    vim.fn.mkdir(member .. "/src", "p")
+    vim.fn.writefile({ "fn main() {}" }, member .. "/src/main.rs")
+    vim.fn.writefile({ "" }, root .. "/lib.rs")
+    local buf = vim.api.nvim_create_buf(false, true)
+    -- cargo runs in the workspace member but prints paths from the workspace root
+    vim.b[buf].term_cwd = member
+
+    local parse = errors.parse_error_line
+    local file, line, col = parse(" --> crates/foo/src/main.rs:2:18", buf)
+    -- a bare name is never looked for above
+    local bare = parse("lib.rs:1:1: error", buf)
+    -- nor in $HOME or past it
+    local home = vim.env.HOME
+    vim.env.HOME = root .. "/crates"
+    local capped = parse(" --> crates/foo/src/main.rs:2:18", buf)
+    vim.env.HOME = home
+    vim.api.nvim_buf_delete(buf, { force = true })
+    vim.fn.delete(root, "rf")
+
+    assert.equals(root .. "/crates/foo/src/main.rs", file)
+    assert.equals(2, line)
+    assert.equals(18, col)
+    assert.is_nil(bare)
+    assert.is_nil(capped)
+  end)
+
+  it("resolves paths against the directory make or ninja entered", function()
+    local root = vim.fn.resolve(vim.fn.tempname())
+    for _, d in ipairs({ "sub", "build", "src" }) do
+      vim.fn.mkdir(root .. "/" .. d, "p")
+    end
+    vim.fn.writefile({ "int a;" }, root .. "/sub/a.c")
+    vim.fn.writefile({ "int b;" }, root .. "/src/b.c")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.b[buf].term_cwd = root
+    local lines = {
+      "make[1]: Entering directory '" .. root .. "/sub'",
+      "a.c:1:2: error: x",
+      "make[1]: Leaving directory '" .. root .. "/sub'",
+      "a.c:1:2: error: y",
+      -- ninja names the directory relative to where it ran
+      "ninja: Entering directory `build'",
+      "../src/b.c:1:1: error: z",
+      "===== RUN: 12:00:00 =====",
+      "../src/b.c:1:1: error: z",
+    }
+    local dirs = errors.dir_map(lines, 1, buf)
+    local function at(row)
+      return select(3, errors.scan_logical_at(lines, row, 220, buf, nil, nil, nil, dirs))
+    end
+    local entered, left, relative, next_run = at(2), at(4), at(6), at(8)
+    vim.api.nvim_buf_delete(buf, { force = true })
+    local real_b = vim.uv.fs_realpath(root .. "/src/b.c")
+    local relative_real = relative and vim.uv.fs_realpath(relative)
+    vim.fn.delete(root, "rf")
+
+    assert.equals(root .. "/sub/a.c", entered)
+    assert.is_nil(left)
+    assert.equals(real_b, relative_real)
+    -- a new run starts outside any directory the last one entered
+    assert.is_nil(next_run)
+  end)
+
   it("uses display width when rebuilding wrapped terminal lines", function()
     local logical_line_at = errors.logical_line_at
     local logical, first, last = logical_line_at({ "éé", "tail" }, 2, 4)
@@ -1047,6 +1113,42 @@ describe("tarminal errors", function()
     assert.equals(file, vim.api.nvim_buf_get_name(0))
     assert.same({ 1, 0 }, vim.api.nvim_win_get_cursor(0))
     vim.fn.delete(file)
+    vim.fn.delete(script)
+  end)
+
+  it("navigates and jumps to a file under the directory make entered", function()
+    local root = vim.fn.resolve(vim.fn.tempname())
+    vim.fn.mkdir(root .. "/sub", "p")
+    local file = root .. "/sub/a.c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      ("printf '%%s\\n' \"make[1]: Entering directory '%s'\" 'a.c:2:1: error: boom'"):format(root .. "/sub"),
+      "sleep 10",
+    }, script)
+    tarminal.setup({ shell = "sh " .. script, quickfix = { open = false, close_terminal = false } })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    local term_win = vim.api.nvim_get_current_win()
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find("a.c:2:1: error", 1, true) ~= nil
+    end, 50)
+    assert.is_true(seen)
+
+    tarminal.errors_to_quickfix()
+    local qf = vim.fn.getqflist()
+    vim.api.nvim_win_set_cursor(term_win, { 1, 0 })
+    tarminal.next_error()
+    assert.is_truthy(vim.api.nvim_get_current_line():find("a.c:2:1", 1, true))
+    tarminal.jump_to_error()
+
+    assert.equals(1, #qf)
+    assert.equals(file, vim.api.nvim_buf_get_name(qf[1].bufnr))
+    assert.equals(file, vim.api.nvim_buf_get_name(0))
+    assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+    vim.fn.delete(root, "rf")
     vim.fn.delete(script)
   end)
 end)
