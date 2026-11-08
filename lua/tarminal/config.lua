@@ -250,7 +250,7 @@ local defaults = {
     -- bash then php then perl
     { pattern = PATH .. ": line (%d+)", file = 1, lnum = 2, contains = ": line " },
     { pattern = PATH_EXT .. " on line (%d+)", file = 1, lnum = 2, contains = " on line " },
-    { pattern = "at%s+" .. PATH .. " line (%d+)", file = 1, lnum = 2, contains = "at " },
+    { pattern = "%f[%a]at%s+" .. PATH .. " line (%d+)", file = 1, lnum = 2, contains = "at " },
     -- groovy is anchored on its tail so dash's "/bin/sh: 1:" stays unlinked;
     -- the whole message is deliberately the match span
     {

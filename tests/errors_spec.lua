@@ -216,6 +216,7 @@ describe("tarminal errors", function()
     assert.is_nil(parse("fib(10) = 55", buf))
     assert.is_nil(parse("    7 |   return fib(1, 2);", buf))
     assert.is_nil(parse("result: fib line 3 done", buf))
+    assert.is_nil(parse("format fib line 3", buf))
     assert.is_nil(parse("result: fib on line 3", buf))
     -- Perl scripts can be extension-less, but its real output includes `at`
     local file, line = parse("bad at fib line 3.", buf)
