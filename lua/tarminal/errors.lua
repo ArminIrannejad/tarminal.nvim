@@ -56,7 +56,10 @@ local function add_ancestors(candidates, base, path)
   end
   base = clean_root(base)
   local home = clean_root(uv.os_homedir())
-  local inside_home = home and (base == home or vim.startswith(base, home .. "/"))
+  if base == home or workspace_root(base) then
+    return
+  end
+  local inside_home = home and vim.startswith(base, home .. "/")
   local first = #candidates + 1
   for parent in vim.fs.parents(base) do
     if parent == "/" or parent == home then
@@ -307,6 +310,10 @@ local function announced_dir(line, word)
   return (dir:gsub("['\"]$", ""):gsub("\226\128\153$", ""))
 end
 
+local function is_run_banner(line)
+  return line:match("^===== RUN: %d%d:%d%d:%d%d =====$") ~= nil
+end
+
 -- paths printed after make -C or ninja -C are relative to the directory it
 -- entered until make leaves it again
 -- a RUN banner starts over so a make cut short can't leak into the next run
@@ -344,7 +351,7 @@ local function dir_map(lines, from, term_buf, width)
           end
         end
       end
-    elseif line:match("^===== RUN: ") then
+    elseif is_run_banner(line) then
       stack = {}
     end
     for r = math.max(first, from or 1), last do
@@ -357,7 +364,7 @@ end
 
 local function dir_scan_start(term_buf, row)
   local start = vim.b[term_buf].run_start_row
-  return start and start < row and start + 1 or 1
+  return start and start <= row and start + 1 or 1
 end
 
 ---@param cache tarminal.ScanCache|nil
@@ -600,12 +607,11 @@ local function highlight_span(term_buf, lines, first_row, last_row, span_s, span
   end
 end
 
--- row of the last RUN banner below `min_row`
--- ^===== guards against output quoting it
+-- row of the last exact RUN banner below `min_row`
 ---@return integer|nil row
 local function find_banner_row(lines, banner_token, min_row)
   for i = #lines, (min_row or 0) + 1, -1 do
-    if lines[i]:match("^=====") and lines[i]:find(banner_token, 1, true) then
+    if is_run_banner(lines[i]) and lines[i]:find(banner_token, 1, true) then
       return i
     end
   end

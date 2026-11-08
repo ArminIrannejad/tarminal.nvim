@@ -395,6 +395,7 @@ describe("tarminal errors", function()
     local member = project .. "/crates/foo"
     vim.fn.mkdir(member .. "/src", "p")
     vim.fn.mkdir(project .. "/.git", "p")
+    vim.fn.mkdir(root .. "/.git", "p")
     vim.fn.mkdir(root .. "/shared", "p")
     vim.fn.writefile({ "fn main() {}" }, member .. "/src/main.rs")
     vim.fn.writefile({ "" }, project .. "/lib.rs")
@@ -413,7 +414,13 @@ describe("tarminal errors", function()
     assert(vim.uv.fs_symlink(project .. "/crates", home_link, { dir = true }))
     local home = vim.env.HOME
     vim.env.HOME = home_link .. "/"
-    local ok, capped = pcall(parse, " --> crates/foo/src/main.rs:2:18", buf)
+    local ok, capped, project_capped = pcall(function()
+      vim.b[buf].term_cwd = member
+      local from_member = parse(" --> crates/foo/src/main.rs:2:18", buf)
+      vim.b[buf].term_cwd = project
+      local from_project = parse("shared/outside.c:1:1: error", buf)
+      return from_member, from_project
+    end)
     vim.env.HOME = home
     vim.api.nvim_buf_delete(buf, { force = true })
     vim.fn.delete(root, "rf")
@@ -426,6 +433,30 @@ describe("tarminal errors", function()
     assert.equals(18, col)
     assert.is_nil(bare)
     assert.is_nil(outside)
+    assert.is_nil(capped)
+    assert.is_nil(project_capped)
+  end)
+
+  it("does not search above a symlinked HOME when it is the terminal directory", function()
+    local root = vim.fn.resolve(vim.fn.tempname())
+    local real_home = root .. "/home"
+    local home_link = root .. "/home-link"
+    vim.fn.mkdir(real_home, "p")
+    vim.fn.mkdir(root .. "/outside", "p")
+    vim.fn.writefile({ "wrong" }, root .. "/outside/file.c")
+    assert(vim.uv.fs_symlink(real_home, home_link, { dir = true }))
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.b[buf].term_cwd = real_home
+
+    local home = vim.env.HOME
+    vim.env.HOME = home_link .. "/"
+    local ok, capped = pcall(errors.parse_error_line, "outside/file.c:1:1: error", buf)
+    vim.env.HOME = home
+    vim.api.nvim_buf_delete(buf, { force = true })
+    vim.fn.delete(root, "rf")
+    if not ok then
+      error(capped, 0)
+    end
     assert.is_nil(capped)
   end)
 
@@ -461,6 +492,7 @@ describe("tarminal errors", function()
     local left_row = #lines
     add("make[1]: Entering directory '" .. root .. "/sub'")
     add("===== PROGRAM RUN state =====")
+    add("===== RUN: application state =====")
     add("a.c:1:2: error: still entered")
     local loose_banner_row = #lines
     add("===== RUN: 12:00:00 =====")
@@ -748,6 +780,40 @@ describe("tarminal errors", function()
     assert.equals(1, #qf)
     assert.equals(2, qf[1].lnum)
     assert.equals("E", qf[1].type)
+  end)
+
+  it("ignores banner-like program output when collecting quickfix", function()
+    vim.fn.setqflist({})
+    local file = vim.fn.tempname() .. ".c"
+    vim.fn.writefile({ "int a;", "int b;" }, file)
+    local script = vim.fn.tempname() .. ".sh"
+    vim.fn.writefile({
+      ("printf '===== RUN: 12:00:00 =====\\n%%s:1:1: error: a\\n===== PROGRAM RUN state =====\\n===== RUN: application state =====\\n%%s:2:1: error: b\\n' %s %s"):format(
+        file,
+        file
+      ),
+      "sleep 10",
+    }, script)
+    tarminal.setup({ shell = "sh " .. script, quickfix = { open = false, close_terminal = false } })
+    tarminal.toggle()
+    local term_buf = vim.api.nvim_get_current_buf()
+    vim.b[term_buf].run_banner = "RUN"
+    vim.b[term_buf].run_start_row = 0
+
+    local seen = vim.wait(4000, function()
+      local text = table.concat(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false), "\n")
+      return text:find(file .. ":2:1: error", 1, true) ~= nil
+    end, 50)
+    if seen then
+      tarminal.errors_to_quickfix()
+    end
+    local qf = vim.fn.getqflist()
+    vim.fn.delete(file)
+    vim.fn.delete(script)
+
+    assert.is_true(seen)
+    assert.equals(2, #qf)
+    assert.same({ 1, 2 }, { qf[1].lnum, qf[2].lnum })
   end)
 
   it("collects an error that follows a width-filling output line", function()
@@ -1602,13 +1668,16 @@ describe("tarminal errors", function()
   it("does not carry an entered directory across the current run boundary", function()
     local root = vim.fn.resolve(vim.fn.tempname())
     vim.fn.mkdir(root .. "/stale", "p")
-    local file = root .. "/a.c"
+    local file = root .. "/target.c"
     vim.fn.writefile({ "int a;", "int b;" }, file)
     vim.fn.writefile({ "wrong", "file" }, root .. "/stale/a.c")
     local script = vim.fn.tempname() .. ".sh"
     vim.fn.writefile({
       "cd " .. vim.fn.shellescape(root),
-      ("printf '%%s\\n' \"ninja: Entering directory '%s'\" boundary 'a.c:2:1: error: boom'"):format(root .. "/stale"),
+      ("printf '%%s\\n' \"ninja: Entering directory '%s'\" boundary 'a.c:2:1: stale' '%s:2:1: error: boom'"):format(
+        root .. "/stale",
+        file
+      ),
       "sleep 10",
     }, script)
     tarminal.setup({ shell = "sh " .. script })
@@ -1616,13 +1685,14 @@ describe("tarminal errors", function()
     local term_buf = vim.api.nvim_get_current_buf()
     local term_win = vim.api.nvim_get_current_win()
 
-    local boundary, target
+    local boundary, stale, target
     local seen = vim.wait(4000, function()
       for i, line in ipairs(vim.api.nvim_buf_get_lines(term_buf, 0, -1, false)) do
         boundary = line == "boundary" and i or boundary
-        target = line:find("a.c:2:1: error", 1, true) and i or target
+        stale = line:find("a.c:2:1: stale", 1, true) and i or stale
+        target = line:find(file .. ":2:1: error", 1, true) and i or target
       end
-      return boundary ~= nil and target ~= nil
+      return boundary ~= nil and stale ~= nil and target ~= nil
     end, 50)
     assert.is_true(seen)
     vim.b[term_buf].run_start_row = boundary
