@@ -760,7 +760,9 @@ describe("tarminal run", function()
       clear_run = false,
       park_on_error = false,
       follow_run = "none",
-      runners = { lua = "true" },
+      -- a banner precedes the command, so wait for output from a real child
+      -- before starting the next run
+      runners = { lua = "sh -c 'sleep 0.1; echo tarminal_scrollable'" },
     })
 
     local term_buf
@@ -768,13 +770,12 @@ describe("tarminal run", function()
     tarminal.run()
     term_buf = find_term_buf()
     assert.is_not_nil(term_buf)
-    assert.is_true(wait_run_finished(term_buf, 1))
+    assert.is_true(wait_run_finished(term_buf, 1, "tarminal_scrollable"))
     local first = banner_rows(term_buf)[1]
 
     tarminal.run()
-    assert.is_true(vim.wait(4000, function()
-      return #banner_rows(term_buf) == 2
-    end, 50))
+    assert.is_true(wait_run_finished(term_buf, 2, "tarminal_scrollable"))
+    assert.equals(2, #banner_rows(term_buf))
     -- the first run remains in the buffer while the window is scrolled to
     -- the second banner with no terminal output padding the viewport
     assert.equals(first, banner_rows(term_buf)[1])
