@@ -785,8 +785,10 @@ describe("tarminal run", function()
 
     vim.cmd.cd(first)
     local first_cd = "cd '" .. vim.fn.getcwd() .. "'"
+    -- after the cd % can name the file through a resolved symlink
+    -- (macOS /var -> /private/var) so take what exec itself expands
+    local expanded = vim.fn.expandcmd("echo ran %")
     tarminal.exec("echo ran %")
-    local expanded = "echo ran " .. file
     assert.is_true(wait_capture(out, expanded))
 
     -- from elsewhere % must not re-expand and the cd must not follow
