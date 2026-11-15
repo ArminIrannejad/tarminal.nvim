@@ -350,9 +350,6 @@ end
 
 ---@return boolean ok
 local function update_buffer(buf)
-  if not config.opts.autosave then
-    return true
-  end
   local ok, err = pcall(vim.api.nvim_buf_call, buf, function()
     vim.cmd("silent update")
   end)
@@ -363,27 +360,51 @@ local function update_buffer(buf)
   return ok
 end
 
+-- every modified file buffer like :wall minus the unnamed ones it errors on
+---@return boolean ok
+local function update_all()
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local bo = vim.bo[buf]
+    if bo.modified and bo.buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
+      if not update_buffer(buf) then
+        return false
+      end
+    end
+  end
+  return true
+end
+
+---@param buf integer|nil buffer the command builds from
+---@return boolean ok
+local function save(buf)
+  local mode = config.opts.save
+  if mode == "none" then
+    return true
+  elseif mode == "all" then
+    return update_all()
+  end
+  return not buf or update_buffer(buf)
+end
+
 -- a re-run reads from disk so save the source if edited
 ---@return boolean ok
 local function save_source(file)
   local src = vim.fn.bufnr(file)
-  return src == -1 or update_buffer(src)
+  return save(src ~= -1 and src or nil)
 end
 
 -- an exec may build what the current file holds so save it
 ---@return boolean ok
 local function save_current()
-  if vim.bo.buftype ~= "" or vim.fn.expand("%:p") == "" then
-    return true
-  end
-  return update_buffer(vim.api.nvim_get_current_buf())
+  local file = vim.bo.buftype == "" and vim.fn.expand("%:p") ~= ""
+  return save(file and vim.api.nvim_get_current_buf() or nil)
 end
 
 function M.run()
   local ctx
   local from_file = vim.bo.buftype == "" and vim.fn.expand("%:p") ~= ""
   if from_file then
-    if not update_buffer(vim.api.nvim_get_current_buf()) then
+    if not save_current() then
       return
     end
     local current_file = vim.fn.expand("%:p")

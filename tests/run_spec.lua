@@ -389,12 +389,12 @@ describe("tarminal run", function()
     assert.is_true(saved)
   end)
 
-  it("runs without saving when autosave is off", function()
+  it("runs without saving when save is none", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ autosave = false, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({ save = "none", park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
     local src = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(src, -1, -1, false, { "print('edited')" })
@@ -410,14 +410,14 @@ describe("tarminal run", function()
     assert.is_true(still_modified)
   end)
 
-  it("does not abort an unwritable run when autosave is off", function()
+  it("does not abort an unwritable run when save is none", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
     vim.bo.filetype = "lua"
-    tarminal.setup({ autosave = false, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+    tarminal.setup({ save = "none", park_on_error = false, follow_run = "none", runners = { lua = "true" } })
 
-    -- the readonly buffer that aborts the run with autosave on is never
+    -- the readonly buffer that aborts a saving run is never
     -- written here so there is nothing to fail on
     vim.api.nvim_buf_set_lines(0, -1, -1, false, { "print('edited')" })
     vim.bo.readonly = true
@@ -428,6 +428,58 @@ describe("tarminal run", function()
     vim.bo.readonly = false
     vim.fn.delete(file)
     assert.equals(before + 1, tarminal._run_id)
+  end)
+
+  -- a run from file `a` with file `b` and an unnamed scratch buffer edited
+  local function run_with_edits(save, readonly_b)
+    local a, b = vim.fn.tempname() .. ".lua", vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('a')" }, a)
+    vim.fn.writefile({ "print('b')" }, b)
+    vim.cmd("enew")
+    local scratch = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(scratch, 0, -1, false, { "scratch" })
+    vim.cmd("edit " .. vim.fn.fnameescape(b))
+    local b_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(b_buf, -1, -1, false, { "print('edited')" })
+    vim.bo[b_buf].readonly = readonly_b or false
+    vim.cmd("edit " .. vim.fn.fnameescape(a))
+    vim.bo.filetype = "lua"
+    local a_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(a_buf, -1, -1, false, { "print('edited')" })
+    tarminal.setup({ save = save, park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    local before = tarminal._run_id
+    tarminal.run()
+
+    local got = {
+      ran = tarminal._run_id == before + 1,
+      a = vim.bo[a_buf].modified,
+      b = vim.bo[b_buf].modified,
+      scratch = vim.bo[scratch].modified,
+    }
+    for _, buf in ipairs({ a_buf, b_buf, scratch }) do
+      vim.bo[buf].readonly = false
+      vim.bo[buf].modified = false
+    end
+    vim.fn.delete(a)
+    vim.fn.delete(b)
+    return got
+  end
+
+  it("save = current writes only the file a run builds from", function()
+    local got = run_with_edits("current")
+    assert.same({ ran = true, a = false, b = true, scratch = true }, got)
+  end)
+
+  it("save = all writes every modified file buffer and skips unnamed ones", function()
+    local got = run_with_edits("all")
+    assert.same({ ran = true, a = false, b = false, scratch = true }, got)
+  end)
+
+  it("save = all aborts the run when a buffer cannot be written", function()
+    local got = run_with_edits("all", true)
+    assert.is_false(got.ran)
+    assert.is_true(got.b)
   end)
 
   it("refuses to run while the terminal is busy with a command", function()

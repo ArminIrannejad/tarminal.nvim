@@ -41,6 +41,16 @@ describe("tarminal config", function()
     assert.same({}, tarminal.config.win_opts)
   end)
 
+  it("saves the current buffer by default and maps autosave = false to none", function()
+    tarminal.setup()
+    assert.equals("current", tarminal.config.save)
+    tarminal.setup({ autosave = false })
+    assert.equals("none", tarminal.config.save)
+    -- an explicit save wins over the old flag
+    tarminal.setup({ autosave = false, save = "all" })
+    assert.equals("all", tarminal.config.save)
+  end)
+
   it("setup resets previous options", function()
     tarminal.setup({ split_height = 20 })
     tarminal.setup()
