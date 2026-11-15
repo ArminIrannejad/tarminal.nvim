@@ -12,7 +12,7 @@ describe("the :Tarminal command", function()
 
   it("completes subcommands and filters them by prefix", function()
     local all = complete("Tarminal ")
-    for _, sub in ipairs({ "toggle", "run", "exec", "send_cell", "errors_to_quickfix" }) do
+    for _, sub in ipairs({ "toggle", "run", "exec", "rerun", "send_cell", "errors_to_quickfix" }) do
       assert.is_true(has(all, sub), "missing subcommand: " .. sub)
     end
     assert.same({ "exec", "errors_to_quickfix" }, complete("Tarminal e"))
@@ -35,5 +35,6 @@ describe("the :Tarminal command", function()
   it("offers nothing for subcommands that take no arguments", function()
     assert.same({}, complete("Tarminal run "))
     assert.same({}, complete("Tarminal toggle "))
+    assert.same({}, complete("Tarminal rerun "))
   end)
 end)

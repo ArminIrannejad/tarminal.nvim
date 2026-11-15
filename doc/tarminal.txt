@@ -355,7 +355,8 @@ tarminal's runs. Other terminal buffers are never touched otherwise.
                           buffer, re-run the last run.
 :Tarminal exec {cmd}      Run {cmd} in the shared terminal, like emacs'
                           M-x compile. Without {cmd}: always prompt, pre-
-                          filled with the last command (<CR> re-runs).
+                          filled with the last command (<CR> re-runs it
+                          in the directory it first ran in).
                           Cmdline specials in {cmd} are expanded first —
                           `%`, `%:r`, `#`, `<cword>`, ... (|cmdline-special|;
                           `%:S` shell-quotes) — so `exec make %:r` needs no
@@ -364,6 +365,11 @@ tarminal's runs. Other terminal buffers are never touched otherwise.
                           resolves `%` against the terminal itself. Output
                           gets the same banner and error navigation as a run.
                           <Tab> completes file paths, never $PATH commands.
+:Tarminal rerun           Repeat whatever ran last, a run or an exec, from
+                          any buffer: the same command in the same
+                          directory, without a prompt. A run saves its
+                          source file first, an exec the current file. To
+                          repeat something else, run or exec it once.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
                           Send the selected line range to the REPL. The visual
@@ -383,9 +389,9 @@ tarminal's runs. Other terminal buffers are never touched otherwise.
 
 No mappings are ever created by the plugin. Every action is exposed both as
 a |:Tarminal| subcommand and as a Lua function on the module
-(`require("tarminal").toggle()`, `.run()`, `.send_cell()`,
-`.send_selection()`, `.jump_to_error()`, `.next_error()`, `.prev_error()`,
-`.errors_to_quickfix()`), so map whatever keys you like: >lua
+(`require("tarminal").toggle()`, `.run()`, `.exec()`, `.rerun()`,
+`.send_cell()`, `.send_selection()`, `.jump_to_error()`, `.next_error()`,
+`.prev_error()`, `.errors_to_quickfix()`), so map whatever keys you like: >lua
 
     local t = require("tarminal")
     vim.keymap.set("n", "<leader>ts", t.toggle, { desc = "Toggle terminal" })

@@ -12,6 +12,7 @@ the current file, and sends selections or cells to a REPL.
 - Move between errors or add them to the quickfix list
 - Run the current file in a shared terminal split
 - Run any command with `:Tarminal exec`
+- Repeat the last run or command with `:Tarminal rerun`
 - Send selections and cells to a REPL
 - Keep one shell terminal and one REPL per filetype
 
@@ -81,9 +82,13 @@ lazy.nvim spec.
 - `:Tarminal` or `:Tarminal toggle` hides every tarminal window, or brings them
   back as they were (the shell terminal the first time).
 - `:Tarminal run` saves and runs the current file.
-- `:Tarminal exec` asks for a command and remembers the last one.
+- `:Tarminal exec` asks for a command and remembers the last one. Accepting
+  it unchanged runs it again in the directory it first ran in.
 - `:Tarminal exec {cmd}` runs a command. `%`, `%:r`, `%:t`, `#`, and other
   command-line expansions work here.
+- `:Tarminal rerun` repeats whatever ran last, a run or an exec, from any
+  buffer: the same command in the same directory, without asking. A run saves
+  its source file first, an exec the current file.
 - `:Tarminal send_cell` sends the cell around the cursor to the REPL.
 - `:'<,'>Tarminal send_selection` sends the selected lines to the REPL.
 - `:Tarminal jump_to_error` jumps to the error on the current terminal line.
