@@ -12,6 +12,11 @@
 ---| '"left"'   # full height on the left
 ---| '"right"'  # full height on the right
 
+---@alias tarminal.Save
+---| '"none"'    # run from disk as is
+---| '"current"' # write the buffer the command builds from
+---| '"all"'     # write every modified file buffer like :wall
+
 ---@alias tarminal.Layout
 ---| '"split"'                   # split placed by split_position
 ---| '"float"'                   # centered floating window
@@ -26,7 +31,8 @@
 ---@field shell string
 ---@field follow_run tarminal.Follow
 ---@field follow_repl tarminal.Follow
----@field autosave boolean write the buffer before a run else use disk
+---@field save tarminal.Save what to write before a run exec or rerun
+---@field autosave boolean|nil deprecated: false is save = "none"
 ---@field park_on_error boolean highlight errors and park on the first
 ---@field diagnostics boolean publish run errors as vim.diagnostic in their files
 ---@field close_on_jump boolean close the terminal after jump_to_error lands
@@ -107,7 +113,7 @@ local defaults = {
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",
   follow_repl = "none",
-  autosave = true,
+  save = "current",
   park_on_error = true,
   diagnostics = false,
   close_on_jump = false,
@@ -220,6 +226,10 @@ function M.setup(opts)
   M.opts = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
   if opts.win_opts then
     M.opts.win_opts = vim.deepcopy(opts.win_opts)
+  end
+  -- autosave = false predates save
+  if opts.save == nil and opts.autosave == false then
+    M.opts.save = "none"
   end
   if extra then
     M.opts.error_patterns = vim.list_extend(vim.deepcopy(extra), M.opts.error_patterns)

@@ -87,8 +87,7 @@ lazy.nvim spec.
 - `:Tarminal exec {cmd}` runs a command. `%`, `%:r`, `%:t`, `#`, and other
   command-line expansions work here.
 - `:Tarminal rerun` repeats whatever ran last, a run or an exec, from any
-  buffer: the same command in the same directory, without asking. A run saves
-  its source file first, an exec the current file.
+  buffer: the same command in the same directory, without asking.
 - `:Tarminal send_cell` sends the cell around the cursor to the REPL.
 - `:'<,'>Tarminal send_selection` sends the selected lines to the REPL.
 - `:Tarminal jump_to_error` jumps to the error on the current terminal line.
@@ -112,7 +111,7 @@ require("tarminal").setup({
   shell = vim.env.SHELL or "/bin/bash",
   follow_run = "focus",                 -- "none", "focus", or "insert"
   follow_repl = "none",
-  autosave = true,
+  save = "current",                     -- "none", "current", or "all": what to write before a run
   park_on_error = true,                 -- highlight errors and park cursor on the first one
   diagnostics = false,                  -- show run errors as diagnostics in their files
   close_on_jump = false,                -- close the terminal once jump_to_error lands
@@ -218,6 +217,19 @@ echo.
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you
 started and walked away from can never be glued onto the run command.
+
+Edits are written before a run, an exec or a rerun, since the command reads
+the files from disk. `save` picks what gets written:
+
+- `"current"` (default) writes the file the command builds from: the current
+  file for a run or exec, the file that ran for a rerun or a run from the
+  terminal.
+- `"all"` writes every modified file, like `:wall`, for builds that read more
+  than one. Buffers without a name are skipped.
+- `"none"` writes nothing and runs what is on disk.
+
+A file that cannot be written cancels the run. `autosave = false` from older
+configs still means `save = "none"`.
 
 ### Events
 
