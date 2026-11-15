@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.4.0...v0.5.0) (2026-11-15)
+
+
+### Features
+
+* rerun the last run or exec where it ran ([c37463f](https://github.com/ArminIrannejad/tarminal.nvim/commit/c37463fbf0f7f7ae40cf5a4e5e0fba97bcc2eed0))
+* rerun the last run or exec where it ran ([d6debb9](https://github.com/ArminIrannejad/tarminal.nvim/commit/d6debb9e8fc7adf3f072f98a341a5bfa2faceca6))
+* save none the current buffer or all before a run ([0c72ada](https://github.com/ArminIrannejad/tarminal.nvim/commit/0c72ada7700b75a549b8f60f9e33476e5bd4403b))
+* save none the current buffer or all before a run ([274fe39](https://github.com/ArminIrannejad/tarminal.nvim/commit/274fe39e5001d9e04b6ce4b90121363d513c99de))
+
+
+### Bug Fixes
+
+* rerun an accepted exec in the directory it first ran in ([3eba821](https://github.com/ArminIrannejad/tarminal.nvim/commit/3eba8213e3101e15fea11c7aa6a1fb2bb8c1746a))
+
 ## [0.4.0](https://github.com/ArminIrannejad/tarminal.nvim/compare/v0.3.0...v0.4.0) (2026-11-08)
 
 
