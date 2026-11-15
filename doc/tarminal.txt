@@ -60,7 +60,7 @@ Calling the setup function is optional; do it only to override defaults: >lua
       banner = true,            -- "===== RUN: <time> =====" line before each run
       clear_run = true,         -- wipe the terminal + scrollback before each run
       mask_run = true,          -- erase the prompt line a kept run was typed on
-      autosave = true,          -- write the buffer before a run; false runs from disk
+      save = "current",         -- "none", "current", "all": written before a run
       shell_integration = true, -- run hook + OSC 7 cwd tracking where no probe answers
       runners = {
         python = "python",
@@ -200,6 +200,20 @@ cursor drops to its last line, unless it parked on an error or you moved it.
 A run is refused while the terminal is busy with a command. When it is idle,
 anything half-typed at the prompt is cancelled with `^C` first, so a line you
 started and walked away from can never be glued onto the run command.
+
+                                                        *tarminal-save*
+Edits are written before a run, an exec or a rerun, since the command reads
+the files from disk. `save` picks what gets written:
+
+  "current"   the file the command builds from (default): the current file
+              for a run or exec, the file that ran for a rerun or a run
+              from the terminal.
+  "all"       every modified file, like |:wall|, for builds that read more
+              than one. Buffers without a name are skipped.
+  "none"      nothing; the command runs what is on disk.
+
+A file that cannot be written cancels the run. `autosave = false` from older
+configs still means `save = "none"`.
 
                                                       *tarminal-events*
 tarminal fires |User| autocmds with a data table (|nvim_create_autocmd()|
@@ -367,9 +381,8 @@ tarminal's runs. Other terminal buffers are never touched otherwise.
                           <Tab> completes file paths, never $PATH commands.
 :Tarminal rerun           Repeat whatever ran last, a run or an exec, from
                           any buffer: the same command in the same
-                          directory, without a prompt. A run saves its
-                          source file first, an exec the current file. To
-                          repeat something else, run or exec it once.
+                          directory, without a prompt. To repeat something
+                          else, run or exec it once.
 :Tarminal send_cell       Send the cell around the cursor to the REPL.
 :'<,'>Tarminal send_selection
                           Send the selected line range to the REPL. The visual
