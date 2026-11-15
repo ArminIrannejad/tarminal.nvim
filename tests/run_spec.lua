@@ -717,6 +717,47 @@ describe("tarminal run", function()
     assert.is_true(resent)
   end)
 
+  it("exec reruns the accepted last command in the directory it first ran in", function()
+    local out, script = stdin_capture_shell()
+    local cwd = vim.fn.getcwd()
+    local first, second = vim.fn.tempname(), vim.fn.tempname()
+    vim.fn.mkdir(first, "p")
+    vim.fn.mkdir(second, "p")
+    tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
+
+    vim.cmd.cd(first)
+    local first_cd = "cd '" .. vim.fn.getcwd() .. "'"
+    tarminal.exec("echo where")
+    assert.is_true(wait_capture(out, first_cd))
+
+    -- accepting the prefilled command keeps its directory
+    -- an edited one runs where you are now
+    vim.cmd.cd(second)
+    local second_dir = vim.fn.getcwd()
+    local second_cd = "cd '" .. second_dir .. "'"
+    local answer
+    local orig = vim.ui.input
+    vim.ui.input = function(opts, on_confirm) ---@diagnostic disable-line: duplicate-set-field
+      on_confirm(answer or opts.default)
+    end
+    tarminal.exec()
+    local kept = vim.wait(8000, function()
+      local _, count = table.concat(vim.fn.readfile(out), "\n"):gsub(vim.pesc(first_cd), "")
+      return count >= 2
+    end, 50)
+    answer = "echo elsewhere"
+    tarminal.exec()
+    vim.ui.input = orig
+    local moved = wait_capture(out, second_cd)
+
+    vim.cmd.cd(cwd)
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    assert.is_true(kept)
+    assert.is_true(moved)
+    assert.equals(second_dir, tarminal._last_exec_dir)
+  end)
+
   it("prints no banner when banner = false", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)

@@ -400,6 +400,17 @@ function M.run()
   execute_in_shell(runner_cmd, dir)
 end
 
+---@param cmd string expanded command
+---@param dir string directory to run it in
+local function exec_in(cmd, dir)
+  if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" and not update_buffer(vim.api.nvim_get_current_buf()) then
+    return
+  end
+  state._last_exec_cmd = cmd
+  state._last_exec_dir = dir
+  execute_in_shell(cmd, dir)
+end
+
 ---@param arg string|table|nil command or :Tarminal callback data or nil
 ---@param verbatim boolean|nil run `arg` as given with no cmdline-special expansion
 function M.exec(arg, verbatim)
@@ -412,14 +423,13 @@ function M.exec(arg, verbatim)
 
   if not input or input == "" then
     vim.ui.input({ prompt = "exec: ", default = state._last_exec_cmd, completion = "file" }, function(text)
-      if text and text ~= "" then
-        M.exec(text, true)
+      if not text or text == "" then
+        return
       end
+      -- the accepted last command reruns where it first ran
+      local same = text == state._last_exec_cmd and state._last_exec_dir
+      exec_in(text, same or vim.fn.getcwd())
     end)
-    return
-  end
-
-  if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" and not update_buffer(vim.api.nvim_get_current_buf()) then
     return
   end
 
@@ -434,9 +444,7 @@ function M.exec(arg, verbatim)
     cmd = expanded
   end
 
-  state._last_exec_cmd = cmd
-  state._last_exec_dir = vim.fn.getcwd()
-  execute_in_shell(cmd, state._last_exec_dir)
+  exec_in(cmd, vim.fn.getcwd())
 end
 
 M.build_runner_command = build_runner_command
