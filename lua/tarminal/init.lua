@@ -14,6 +14,7 @@ local M = {}
 M.toggle = run.toggle
 M.run = run.run
 M.exec = run.exec
+M.rerun = run.rerun
 M.send_selection = repl.send_selection
 M.send_cell = repl.send_cell
 M.jump_to_error = errors.jump_to_error

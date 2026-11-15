@@ -12,6 +12,7 @@ local subcommands = {
   "toggle",
   "run",
   "exec",
+  "rerun",
   "send_cell",
   "send_selection",
   "jump_to_error",

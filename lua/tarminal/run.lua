@@ -153,7 +153,8 @@ function M.toggle()
   end
 end
 
-local function execute_in_shell(cmd, dir)
+---@param file string|nil source a run was built from
+local function execute_in_shell(cmd, dir, file)
   local code_win = vim.api.nvim_get_current_win()
 
   local existing = term.find_live_terminal("is_shell", true)
@@ -172,6 +173,8 @@ local function execute_in_shell(cmd, dir)
     vim.api.nvim_set_current_win(code_win)
     return
   end
+  -- whatever was sent last run or exec is what rerun repeats
+  state._last_cmd = { cmd = cmd, dir = dir, file = file }
 
   vim.api.nvim_buf_clear_namespace(term_buf, errors.ns, 0, -1)
 
@@ -360,6 +363,22 @@ local function update_buffer(buf)
   return ok
 end
 
+-- a re-run reads from disk so save the source if edited
+---@return boolean ok
+local function save_source(file)
+  local src = vim.fn.bufnr(file)
+  return src == -1 or update_buffer(src)
+end
+
+-- an exec may build what the current file holds so save it
+---@return boolean ok
+local function save_current()
+  if vim.bo.buftype ~= "" or vim.fn.expand("%:p") == "" then
+    return true
+  end
+  return update_buffer(vim.api.nvim_get_current_buf())
+end
+
 function M.run()
   local ctx
   local from_file = vim.bo.buftype == "" and vim.fn.expand("%:p") ~= ""
@@ -380,9 +399,7 @@ function M.run()
       vim.notify("Nothing to run from here", vim.log.levels.WARN)
       return
     end
-    -- re-run from disk so save the source if edited
-    local src = vim.fn.bufnr(ctx.file)
-    if src ~= -1 and not update_buffer(src) then
+    if not save_source(ctx.file) then
       return
     end
   end
@@ -397,13 +414,30 @@ function M.run()
   if from_file then
     state._last_run = ctx
   end
-  execute_in_shell(runner_cmd, dir)
+  execute_in_shell(runner_cmd, dir, ctx.file)
+end
+
+-- repeat the last run or exec as sent and where it ran
+function M.rerun()
+  local last = state._last_cmd
+  if not last then
+    vim.notify("Nothing to rerun", vim.log.levels.WARN)
+    return
+  end
+  if last.file then
+    if not save_source(last.file) then
+      return
+    end
+  elseif not save_current() then
+    return
+  end
+  execute_in_shell(last.cmd, last.dir, last.file)
 end
 
 ---@param cmd string expanded command
 ---@param dir string directory to run it in
 local function exec_in(cmd, dir)
-  if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" and not update_buffer(vim.api.nvim_get_current_buf()) then
+  if not save_current() then
     return
   end
   state._last_exec_cmd = cmd

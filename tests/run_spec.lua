@@ -758,6 +758,129 @@ describe("tarminal run", function()
     assert.equals(second_dir, tarminal._last_exec_dir)
   end)
 
+  it("rerun warns when nothing ran yet", function()
+    require("tarminal.state")._last_cmd = nil
+    local warned
+    local orig = vim.notify
+    vim.notify = function(msg) ---@diagnostic disable-line: duplicate-set-field
+      warned = msg
+    end
+    local before = tarminal._run_id
+    tarminal.rerun()
+    vim.notify = orig
+    assert.equals("Nothing to rerun", warned)
+    assert.equals(before, tarminal._run_id)
+  end)
+
+  it("rerun repeats the last exec as sent and where it ran", function()
+    local out, script = stdin_capture_shell()
+    local cwd = vim.fn.getcwd()
+    local first, second = vim.fn.tempname(), vim.fn.tempname()
+    vim.fn.mkdir(first, "p")
+    vim.fn.mkdir(second, "p")
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    tarminal.setup({ banner = false, park_on_error = false, follow_run = "none", shell = "sh " .. script })
+
+    vim.cmd.cd(first)
+    local first_cd = "cd '" .. vim.fn.getcwd() .. "'"
+    tarminal.exec("echo ran %")
+    local expanded = "echo ran " .. file
+    assert.is_true(wait_capture(out, expanded))
+
+    -- from elsewhere % must not re-expand and the cd must not follow
+    -- an edited current buffer is saved like exec saves it
+    vim.cmd.cd(second)
+    local other = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('other')" }, other)
+    vim.cmd("edit " .. vim.fn.fnameescape(other))
+    vim.api.nvim_buf_set_lines(0, -1, -1, false, { "print('edited')" })
+    tarminal.rerun()
+    local saved = not vim.bo.modified
+
+    local function count(needle)
+      local _, n = table.concat(vim.fn.readfile(out), "\n"):gsub(vim.pesc(needle), "")
+      return n
+    end
+    -- each line carries the command twice in its shown echo and itself
+    local resent = vim.wait(8000, function()
+      return count(first_cd) >= 2
+    end, 50)
+    local sends = count(expanded)
+
+    vim.cmd.cd(cwd)
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    vim.fn.delete(other)
+    assert.is_true(saved)
+    assert.is_true(resent)
+    assert.equals(4, sends)
+  end)
+
+  it("rerun repeats the last run from another file and saves its source", function()
+    local out, script = stdin_capture_shell()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    local src = vim.api.nvim_get_current_buf()
+    tarminal.setup({
+      banner = false,
+      park_on_error = false,
+      follow_run = "none",
+      shell = "sh " .. script,
+      runners = { lua = "echo luarun" },
+    })
+
+    tarminal.run()
+    local sent = "echo luarun '" .. file .. "'"
+    assert.is_true(wait_capture(out, sent))
+
+    -- a code buffer of its own does not take over what rerun runs
+    local other = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('other')" }, other)
+    vim.cmd("edit " .. vim.fn.fnameescape(other))
+    vim.bo.filetype = "lua"
+    vim.api.nvim_buf_set_lines(src, -1, -1, false, { "print('edited')" })
+    tarminal.rerun()
+    local saved = not vim.bo[src].modified
+
+    local resent = vim.wait(8000, function()
+      local _, n = table.concat(vim.fn.readfile(out), "\n"):gsub(vim.pesc(sent), "")
+      return n >= 2
+    end, 50)
+    local text = table.concat(vim.fn.readfile(out), "\n")
+
+    vim.fn.delete(out)
+    vim.fn.delete(script)
+    vim.fn.delete(file)
+    vim.fn.delete(other)
+    assert.is_true(saved)
+    assert.is_true(resent)
+    assert.is_nil(text:find(other, 1, true))
+  end)
+
+  it("rerun repeats an exec that came after a run", function()
+    local file = vim.fn.tempname() .. ".lua"
+    vim.fn.writefile({ "print('ok')" }, file)
+    vim.cmd("edit " .. vim.fn.fnameescape(file))
+    vim.bo.filetype = "lua"
+    tarminal.setup({ park_on_error = false, follow_run = "none", runners = { lua = "true" } })
+
+    tarminal.run()
+    assert.equals(file, tarminal._last_cmd.file)
+    local term_buf = find_term_buf()
+    assert.is_true(wait_run_finished(term_buf, 1))
+    tarminal.exec("echo after")
+
+    local last = tarminal._last_cmd
+    vim.fn.delete(file)
+    assert.equals("echo after", last.cmd)
+    assert.is_nil(last.file)
+  end)
+
   it("prints no banner when banner = false", function()
     local file = vim.fn.tempname() .. ".lua"
     vim.fn.writefile({ "print('ok')" }, file)
